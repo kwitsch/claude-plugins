@@ -2,9 +2,8 @@
 name: build-task
 description: >-
   End-to-end pipeline for a described task: design (explore, draft, review,
-  spec) and delivery (plan, wave-parallel implementation in isolated
-  worktrees with per-wave merge, combined review, fix application), both
-  executed by prebuilt Workflow scripts shipped with this skill. Human
+  spec) and delivery (plan, wave-parallel implementation, combined review,
+  fix application), both executed by prebuilt Workflow scripts shipped with this skill. Human
   checkpoints: open design questions and spec approval, via AskUserQuestion.
 argument-hint: "[--skip-branch-check] [task-description]"
 arguments: task_description
@@ -26,9 +25,8 @@ relevant one BEFORE each invocation:
   `complete` (spec written) or `user_input_required` (draft persisted + open
   user questions, resumable).
 - [references/spec-driven-delivery.md](references/spec-driven-delivery.md)
-  — Plan → wave-parallel Implement (every
-  implementer in its own isolated worktree; each wave merged by a dedicated
-  merger agent) → combined Review → fix application. Findings that would
+  — Plan → wave-parallel Implement (worktree/merge rules per wave size are in
+  the reference) → combined Review → fix application. Findings that would
   reverse an approved-spec decision come back unapplied as `escalatedToUser`.
 
 Runs inline because it invokes the Workflow tool directly — do NOT fork it.
@@ -229,7 +227,7 @@ Every pipeline file is session-only, never a repository file:
    partial `results`, then stop — a failed task or wave-merge conflict is a
    hard stop; never retry the merge, never resolve a conflict, and never
    continue on a half-implemented plan (its `taskResults` name any abandoned
-   worktrees/branches for manual cleanup).
+   worktrees/branches or left-behind commits for manual cleanup).
 5. **Escalations & report.** Terminal step.
    1. For each `escalatedToUser` finding (review fixes the workflow refused
       to auto-apply because they would reverse an approved-spec decision):

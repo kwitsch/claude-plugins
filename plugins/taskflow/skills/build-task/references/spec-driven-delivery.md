@@ -1,8 +1,8 @@
 # /taskflow:spec-driven-delivery — usage reference
 
-Delivery pipeline for an APPROVED spec: Plan → wave-parallel Implement (every
-implementer in its own isolated worktree, each wave merged by a dedicated
-merger agent) → combined Review → fix application.
+Delivery pipeline for an APPROVED spec: Plan → wave-parallel Implement
+(worktree/merge rules per wave size: see Behavior notes) → combined Review →
+fix application.
 
 ## Contents
 
@@ -66,8 +66,9 @@ before assuming malformed content.
   `claude --worktree` cut and its own `git checkout -b "feature/<slug>"`,
   not by build-task's step 1.
 - Spec approved by the user and readable by subagents.
-- Worktree isolation branches from the repo's DEFAULT branch — the template
-  compensates by hard-resetting every implementer to `BRANCH_NAME` first.
+- Worktree isolation (multi-task waves) branches from the repo's DEFAULT
+  branch — the template compensates by hard-resetting each implementer to
+  `BRANCH_NAME` first.
 
 ## Result (exit contract)
 
@@ -91,12 +92,12 @@ Consume only this return — never re-derive state from transcript output.
 
 ### Error stages
 
-| `stage`     | Meaning                                                                                                                          | Action                                                                                                                                                                                        |
-| :---------- | :------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `args`      | Invocation malformed (no args / missing required keys, or `GRAPHMIND_AVAILABLE: true` with an empty or non-absolute `REPO_PATH`) | Fix the call — do not debug the pipeline                                                                                                                                                      |
-| `Plan`      | Planner failed/blocked, or plan still blocking after one revision round                                                          | Surface `error`; nothing was implemented                                                                                                                                                      |
-| `Implement` | A task failed, a merger failed, or a wave merge hit a conflict — HARD STOP                                                       | Never retry the merge, never resolve conflicts, never open a PR on a half-implemented plan. `results` names abandoned worktrees/branches for manual cleanup; partial `minorFindings` included |
-| `Review`    | Scope agent failed or found no diff after a merged implement phase                                                               | Surface `error` + partial `results`                                                                                                                                                           |
+| `stage`     | Meaning                                                                                                                          | Action                                                                                                                                                                                                               |
+| :---------- | :------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `args`      | Invocation malformed (no args / missing required keys, or `GRAPHMIND_AVAILABLE: true` with an empty or non-absolute `REPO_PATH`) | Fix the call — do not debug the pipeline                                                                                                                                                                             |
+| `Plan`      | Planner failed/blocked, or plan still blocking after one revision round                                                          | Surface `error`; nothing was implemented                                                                                                                                                                             |
+| `Implement` | A task failed, or (multi-task waves only) a merger failed or a wave merge hit a conflict — HARD STOP                             | Never retry the merge, never resolve conflicts, never open a PR on a half-implemented plan. `results` names abandoned worktrees/branches or left-behind commits for manual cleanup; partial `minorFindings` included |
+| `Review`    | Scope agent failed or found no diff after a merged implement phase                                                               | Surface `error` + partial `results`                                                                                                                                                                                  |
 
 A wave-merge conflict means the wave analysis missed a real dependency — that
 is a planning defect to surface, not a git problem to solve.
@@ -112,10 +113,14 @@ is a planning defect to surface, not a git problem to solve.
   tasks; `opus` for the synthesizer and `complex`-task implementer; the
   plan-check gate stays on `sonnet`; the per-task fixer reuses the
   implementer's model.
-- Every implementer runs with `isolation: 'worktree'` — no direct commits on
-  the work branch, even for single-task waves.
-- Each wave is merged by a separate merger agent (`git merge --no-ff`, task-id
-  order, worktree cleanup before branch delete).
+- Waves with more than one task: every implementer runs with
+  `isolation: 'worktree'`, and the wave is merged by a separate merger agent
+  (`git merge --no-ff`, task-id order, worktree cleanup before branch delete).
+- Waves with exactly one task (single-task wave): the implementer runs
+  non-isolated and commits directly on the work branch; no merger runs. It
+  verifies branch == `BRANCH_NAME` and a clean tree itself (prompt-level guard);
+  the per-task reviewer re-checks the branch and commit. A failure leaves its
+  commits on the work branch for manual revert.
 - Review depth auto-scales: any `complex` task or >4 tasks → `max` level
   (5 correctness angles + 5 cleanup lenses + gap sweep, cap 15), else `high`.
 - Ship stage roles: `pr-author` (`haiku` alias) writes a faithful

@@ -1,10 +1,10 @@
 # taskflow
 
-Spec-driven design & delivery pipeline for Claude Code, packaged as a plugin. `/taskflow:build-task` orchestrates two dynamic workflows: `design-to-spec` (explore, draft, review, spec) and `spec-driven-delivery` (plan, wave-parallel implement in isolated worktrees, per-wave merge, combined review, fix application). `/taskflow:changes-audit` (`skills/changes-audit/`) runs the same combined review standalone over a branch diff — no plan/spec/ship — then optionally applies the findings (`--fix` auto-applies all, otherwise an `AskUserQuestion` multi-select applies your picks).
+Spec-driven design & delivery pipeline for Claude Code, packaged as a plugin. `/taskflow:build-task` orchestrates two dynamic workflows: `design-to-spec` (explore, draft, review, spec) and `spec-driven-delivery` (plan, wave-parallel implement (isolated worktrees + per-wave merge for multi-task waves), combined review, fix application). `/taskflow:changes-audit` (`skills/changes-audit/`) runs the same combined review standalone over a branch diff — no plan/spec/ship — then optionally applies the findings (`--fix` auto-applies all, otherwise an `AskUserQuestion` multi-select applies your picks).
 
 ## Install
 
-```
+```text
 /plugin install taskflow@kwitsch-plugins
 ```
 
@@ -25,7 +25,7 @@ Both live in the plugin-root `workflows/` directory and are auto-discovered — 
 | Workflow               | Purpose                                                                                                                                                                                                                                                                      |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `design-to-spec`       | Explore → Draft design → Design review → Write spec → Spec review. Exits `complete` or `user_input_required` (resumable via draft file + answers).                                                                                                                           |
-| `spec-driven-delivery` | Plan → wave-parallel Implement (always isolated worktrees, per-wave merge by a dedicated merger agent) → combined Review → fix application → Ship (push, PR/MR, CI watch + bounded fix rounds).                                                                              |
+| `spec-driven-delivery` | Plan → wave-parallel Implement (worktree + per-wave merge for multi-task waves; single-task waves commit directly) → combined Review → fix application → Ship (push, PR/MR, CI watch + bounded fix rounds).                                                                  |
 | `changes-review`       | Standalone combined Review over a branch diff — correctness angles + cleanup lenses, independently verified, plus a report-only lean pass. No plan/spec/apply/ship. Invoked by the `changes-audit` skill (not `build-task`); returns verified `findings` + `ponytailReview`. |
 
 ## Agents
@@ -39,7 +39,7 @@ Static role prompts (rules, lens catalog, verdict ladder, git procedures), dispa
 | `planner`         | opus   | Turns an approved spec into a dense, machine-executable implementation plan. Workflow dispatch picks sonnet/opus/fable per run by difficulty — see CLAUDE.md. |
 | `review-finder`   | sonnet | Reviews one assigned lens (5 correctness angles + 5 cleanup lenses) over a diff.                                                                              |
 | `review-verifier` | sonnet | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.                                                                                   |
-| `worktree-merger` | haiku  | Merges approved task branches into the work branch in order, worktree cleanup.                                                                                |
+| `worktree-merger` | haiku  | Merges approved task branches into the work branch in order, worktree cleanup (multi-task waves only).                                                        |
 | `fix-applier`     | sonnet | Applies pre-verified review fixes by category, with a test-run safety gate.                                                                                   |
 | `pr-author`       | haiku  | Writes the PR/MR title and body from the pipeline summary and repo template.                                                                                  |
 | `shipper`         | haiku  | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR.              |

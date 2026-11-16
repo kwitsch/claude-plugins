@@ -56,10 +56,10 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.13.1" {
+@test "plugin.json version is 1.14.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.13.1" ]
+  [ "$output" = "1.14.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -175,7 +175,7 @@ followed_by() { # <head> <next> <file>
   done
   run rg_or_grep -F 'planCheckerPrompt = `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  for p in 'implementerPrompt = (t) =>' 'reviewerPrompt = (t, implReport) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>'; do
+  for p in 'implementerPrompt = (t, isolated) =>' 'reviewerPrompt = (t, implReport, isolated) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>'; do
     followed_by "$p" '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   done
   followed_by 'NO_NARRATION' '+ "\n\n' "$WORKFLOWS/spec-driven-delivery.workflow.js"
@@ -996,7 +996,7 @@ mm_git_fixture() {
 }
 
 @test "implementer keeps its pinned prompt head and redirects test evidence to the derived path" {
-  run followed_by 'implementerPrompt = (t) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run followed_by 'implementerPrompt = (t, isolated) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'tevPathFor' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
@@ -1007,10 +1007,27 @@ mm_git_fixture() {
 }
 
 @test "reviewer reads test evidence from the file named by testEvidencePath" {
-  run followed_by 'reviewerPrompt = (t, implReport) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run followed_by 'reviewerPrompt = (t, implReport, isolated) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'named by testEvidencePath' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
+}
+
+@test "spec-driven-delivery isolates and merges only multi-task waves" {
+  WF="$WORKFLOWS/spec-driven-delivery.workflow.js"
+  for p in 'isolated ? { isolation: "worktree" } : {}' 'runTask(waveTasks[0], false)' 'runTask(t, true)' 'if (isolated && approved.length)' 'single-task wave: no worktree, no merge step'; do
+    run rg_or_grep -F -- "$p" "$WF"
+    [ "$status" -eq 0 ]
+  done
+  run rg_or_grep -F 'even for wave size 1' "$WF"
+  [ "$status" -ne 0 ]
+}
+
+@test "spec-driven-delivery reference documents single-task waves, not always-isolated" {
+  run rg_or_grep -F 'single-task wave' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'even for single-task waves' "$REFS/spec-driven-delivery.md"
+  [ "$status" -ne 0 ]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
