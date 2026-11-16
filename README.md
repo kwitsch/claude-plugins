@@ -4,7 +4,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 
 ## Install
 
-```
+```text
 /plugin marketplace add kwitsch/claude-plugins
 ```
 

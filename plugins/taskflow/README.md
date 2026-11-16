@@ -4,7 +4,7 @@ Spec-driven design & delivery pipeline for Claude Code, packaged as a plugin. `/
 
 ## Install
 
-```
+```text
 /plugin install taskflow@kwitsch-plugins
 ```
 
