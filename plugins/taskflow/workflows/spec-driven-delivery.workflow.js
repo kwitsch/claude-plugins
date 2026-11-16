@@ -611,7 +611,7 @@ exact output, set testEvidencePath to that same absolute path, and report any
 deviation from the plan inline in deviations. Return through the structured
 output schema.`;
 
-const reviewerPrompt = (t, implReport) =>
+const reviewerPrompt = (t, implReport, isolated) =>
   `${NO_NARRATION}
 
 You are a read-only reviewer for one
@@ -620,7 +620,15 @@ plan task. Plan file: ${PLAN_PATH} — Read it; review ONLY task ${t.id}
 Implementer report: ${implReport}
 The commit lives on the branch named in the report — read it with
 \`git show <branch>\` / \`git log <branch>\` (refs are shared across worktrees;
-no checkout needed). Check spec/plan compliance against the task text and these
+no checkout needed).${
+    isolated
+      ? ""
+      : `
+This task ran directly on the work branch: reject unless the report's branch is
+exactly ${BRANCH_NAME}, the task's commit is on it (\`git log ${BRANCH_NAME}\`), and
+\`git status --porcelain\` is empty.`
+  }
+Check spec/plan compliance against the task text and these
 global constraints, then correctness: ${constraints}
 The test evidence is in the file named by testEvidencePath in the report — use
 the Read tool on it if you need it; do not re-run the tests the implementer
@@ -661,8 +669,8 @@ async function runTask(t, isolated) {
   }
   const implReport = JSON.stringify(impl);
   const revOpts = { label: "review:" + t.id, phase: "Implement", schema: VERDICT, model: reviewModel(t) };
-  let review = await agent(reviewerPrompt(t, implReport), revOpts);
-  if (review === null) review = await agent(reviewerPrompt(t, implReport), { ...revOpts, label: "review:" + t.id + ":retry" });
+  let review = await agent(reviewerPrompt(t, implReport, isolated), revOpts);
+  if (review === null) review = await agent(reviewerPrompt(t, implReport, isolated), { ...revOpts, label: "review:" + t.id + ":retry" });
   if (review && !review.approved) {
     const blocking = review.findings.filter((f) => f.severity !== "minor");
     if (blocking.length) {
@@ -677,8 +685,8 @@ async function runTask(t, isolated) {
         + ". Fix report: "
         + fix;
       const reOpts = { ...revOpts, label: "re-review:" + t.id };
-      review = await agent(reviewerPrompt(t, reReport), reOpts);
-      if (review === null) review = await agent(reviewerPrompt(t, reReport), { ...reOpts, label: reOpts.label + ":retry" });
+      review = await agent(reviewerPrompt(t, reReport, isolated), reOpts);
+      if (review === null) review = await agent(reviewerPrompt(t, reReport, isolated), { ...reOpts, label: reOpts.label + ":retry" });
     }
   }
   const blockingLeft = !review || (!review.approved && review.findings.some((f) => f.severity !== "minor"));

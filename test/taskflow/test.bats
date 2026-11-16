@@ -175,7 +175,7 @@ followed_by() { # <head> <next> <file>
   done
   run rg_or_grep -F 'planCheckerPrompt = `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  for p in 'implementerPrompt = (t, isolated) =>' 'reviewerPrompt = (t, implReport) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>'; do
+  for p in 'implementerPrompt = (t, isolated) =>' 'reviewerPrompt = (t, implReport, isolated) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>'; do
     followed_by "$p" '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   done
   followed_by 'NO_NARRATION' '+ "\n\n' "$WORKFLOWS/spec-driven-delivery.workflow.js"
@@ -1007,7 +1007,7 @@ mm_git_fixture() {
 }
 
 @test "reviewer reads test evidence from the file named by testEvidencePath" {
-  run followed_by 'reviewerPrompt = (t, implReport) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run followed_by 'reviewerPrompt = (t, implReport, isolated) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'named by testEvidencePath' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
