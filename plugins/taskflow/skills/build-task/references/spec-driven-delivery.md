@@ -1,9 +1,8 @@
 # /taskflow:spec-driven-delivery — usage reference
 
-Delivery pipeline for an APPROVED spec: Plan → wave-parallel Implement (each
-implementer in its own isolated worktree and each wave merged by a dedicated
-merger agent only when the wave has more than one task; a single-task wave
-commits directly on the work branch) → combined Review → fix application.
+Delivery pipeline for an APPROVED spec: Plan → wave-parallel Implement
+(worktree/merge rules per wave size: see Behavior notes) → combined Review →
+fix application.
 
 ## Contents
 
@@ -67,11 +66,9 @@ before assuming malformed content.
   `claude --worktree` cut and its own `git checkout -b "feature/<slug>"`,
   not by build-task's step 1.
 - Spec approved by the user and readable by subagents.
-- For isolated (multi-task-wave) implementers: worktree isolation branches from
-  the repo's DEFAULT branch — the template compensates by hard-resetting each
-  to `BRANCH_NAME` first. A single-task wave's implementer runs non-isolated in
-  the session checkout and verifies branch == `BRANCH_NAME` and a clean tree
-  instead.
+- Worktree isolation (multi-task waves) branches from the repo's DEFAULT
+  branch — the template compensates by hard-resetting each implementer to
+  `BRANCH_NAME` first.
 
 ## Result (exit contract)
 
@@ -84,7 +81,7 @@ Consume only this return — never re-derive state from transcript output.
 | :----------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→haiku, complex→`opus`); planner model chosen per run by a difficulty classifier (`sonnet`/`opus`/`fable`); synthesizer on `opus`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `waves`                  | Wave layout, e.g. `[[1,2],[3]]` — file-overlap ∪ consumes→produces ∪ conservative fallback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `taskResults`            | Per task: `{id, status, branch, worktreePath, minor}` — for a single-task wave `branch` is the work branch and `worktreePath` the session checkout                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `taskResults`            | Per task: `{id, status, branch, worktreePath, minor}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `implementMinorFindings` | Non-blocking per-task review findings — pass through to the final report/PR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `review`                 | `{level, finders, candidates, verifierAgents, verified, refuted, summary, findings}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `ponytailReview`         | `{findings: [{file, line?, tag, what, replacement}], verdict}` — a separate, independently-verified and deduped, report-only over-engineering ("lean") pass over the same review diff; tags `delete`/`stdlib`/`native`/`yagni`/`shrink`. NEVER auto-applied and never escalated; surfaced in the report and the PR body only                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -95,12 +92,12 @@ Consume only this return — never re-derive state from transcript output.
 
 ### Error stages
 
-| `stage`     | Meaning                                                                                                                          | Action                                                                                                                                                                                                                                                                                |
-| :---------- | :------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `args`      | Invocation malformed (no args / missing required keys, or `GRAPHMIND_AVAILABLE: true` with an empty or non-absolute `REPO_PATH`) | Fix the call — do not debug the pipeline                                                                                                                                                                                                                                              |
-| `Plan`      | Planner failed/blocked, or plan still blocking after one revision round                                                          | Surface `error`; nothing was implemented                                                                                                                                                                                                                                              |
-| `Implement` | A task failed, or (multi-task waves only) a merger failed or a wave merge hit a conflict — HARD STOP                             | Never retry the merge, never resolve conflicts, never open a PR on a half-implemented plan. `results` names abandoned worktrees/branches for manual cleanup, or the commits left on the work branch for a failed single-task wave for manual revert; partial `minorFindings` included |
-| `Review`    | Scope agent failed or found no diff after a merged implement phase                                                               | Surface `error` + partial `results`                                                                                                                                                                                                                                                   |
+| `stage`     | Meaning                                                                                                                          | Action                                                                                                                                                                                                               |
+| :---------- | :------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `args`      | Invocation malformed (no args / missing required keys, or `GRAPHMIND_AVAILABLE: true` with an empty or non-absolute `REPO_PATH`) | Fix the call — do not debug the pipeline                                                                                                                                                                             |
+| `Plan`      | Planner failed/blocked, or plan still blocking after one revision round                                                          | Surface `error`; nothing was implemented                                                                                                                                                                             |
+| `Implement` | A task failed, or (multi-task waves only) a merger failed or a wave merge hit a conflict — HARD STOP                             | Never retry the merge, never resolve conflicts, never open a PR on a half-implemented plan. `results` names abandoned worktrees/branches or left-behind commits for manual cleanup; partial `minorFindings` included |
+| `Review`    | Scope agent failed or found no diff after a merged implement phase                                                               | Surface `error` + partial `results`                                                                                                                                                                                  |
 
 A wave-merge conflict means the wave analysis missed a real dependency — that
 is a planning defect to surface, not a git problem to solve.
@@ -120,7 +117,10 @@ is a planning defect to surface, not a git problem to solve.
   `isolation: 'worktree'`, and the wave is merged by a separate merger agent
   (`git merge --no-ff`, task-id order, worktree cleanup before branch delete).
 - Waves with exactly one task (single-task wave): the implementer runs
-  non-isolated and commits directly on the work branch; no merger runs.
+  non-isolated and commits directly on the work branch; no merger runs. It
+  verifies branch == `BRANCH_NAME` and a clean tree itself (prompt-level guard);
+  the per-task reviewer re-checks the branch and commit. A failure leaves its
+  commits on the work branch for manual revert.
 - Review depth auto-scales: any `complex` task or >4 tasks → `max` level
   (5 correctness angles + 5 cleanup lenses + gap sweep, cap 15), else `high`.
 - Ship stage roles: `pr-author` (`haiku` alias) writes a faithful
