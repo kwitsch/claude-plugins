@@ -1,6 +1,6 @@
 {
   "name": "rc-enhancement",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Interaction contract: a SessionStart hook injects the critical rule that all user interaction goes through the AskUserQuestion tool (never a plain-text question; free-text answers via Other plus an Abort/Cancel option), and a mods gate re-prompts once when a turn still ends in a plain-text question, pointing back at that rule.",
   "author": {
     "name": "Kwitsch"

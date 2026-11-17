@@ -4,7 +4,7 @@ Interaction contract: a `SessionStart` hook injects the critical rule that all u
 
 ## Install
 
-```
+```text
 /plugin install rc-enhancement@kwitsch-plugins
 ```
 
