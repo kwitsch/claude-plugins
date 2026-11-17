@@ -6,10 +6,20 @@ export default [
   {
     // Workflow-tool scripts run inside an implicit async wrapper (top-level
     // `await`/`return` are valid there) — not parseable as a standalone module.
-    // universal-format's MCP server is a ~9.3 MB `bun build` bundle synced from
-    // kwitsch/claude-plugins-development; linting build output is meaningless and `max-len: 200`
-    // alone would flood it with thousands of errors.
-    ignores: ["**/*.workflow.js", "plugins/universal-format/mcp/server.mjs"],
+    // Synced plugins are minified build output from kwitsch/claude-plugins-development; linting
+    // it is meaningless (`max-len: 200` alone floods it with errors).
+    ignores: [
+      "**/*.workflow.js",
+      "plugins/dprint/**",
+      "plugins/inline-headroom/**",
+      "plugins/universal-lint/**",
+      "plugins/universal-format/**",
+      "plugins/jevfort/**",
+      "plugins/jev-api/**",
+      "plugins/jev-solver/**",
+      "plugins/graphmind-helper/**",
+      "plugins/rc-enhancement/**",
+    ],
   },
   {
     files: ["**/*.{js,mjs}"],
