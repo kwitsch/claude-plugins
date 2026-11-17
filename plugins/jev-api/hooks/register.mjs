@@ -1,4 +1,4 @@
-import { DEFAULT_CONTEXT_TOKENS, DEFAULT_DENSITY, DEFAULT_OVERFLOW, DEFAULT_TIMEOUT_S, HAIKU_MAX_CHARS, PLUGIN, REGISTER_WAIT_MS, SERVER_TOOL_PREFIX, TOOLS, TOOL_PREFIX, answerJev, askHaiku, configureServer, cutState, ensureTools, fail, isOverflow, loadKnowledge, message, newLink, parseInput, seconds, untilAbort } from "./lib.mjs";
+import { DEFAULT_CONTEXT_TOKENS, DEFAULT_DENSITY, DEFAULT_OVERFLOW, DEFAULT_TIMEOUT_S, HAIKU_MAX_CHARS, PLUGIN, REGISTER_WAIT_MS, SERVER_TOOL_PREFIX, TOOLS, TOOL_PREFIX, answerJev, askHaiku, cutState, ensureTools, fail, isOverflow, loadKnowledge, message, newLink, parseInput, seconds, untilAbort } from "./lib.mjs";
 export function register(on, options) {
 	const fallbackS = seconds(options?.["timeout"]) ?? DEFAULT_TIMEOUT_S;
 	const optionOverflow = options?.["overflow"];
@@ -28,20 +28,6 @@ export function register(on, options) {
 			st.failures.clear();
 			st.stuck.clear();
 			if (st.missing.size > 0) await ensureTools($, st, 5 * REGISTER_WAIT_MS);
-		} catch {}
-		try {
-			const [key, base, jevUrl, model] = (await Promise.all([
-				$.env.get("TYPESAFE_API_KEY"),
-				$.env.get("TYPESAFE_BASE_URL"),
-				$.env.get("JEV_URL"),
-				$.env.get("TYPESAFE_DEFAULT_MODEL")
-			])).map((v) => v?.trim() || undefined);
-			if (key || base || jevUrl) await configureServer($, link, {
-				key,
-				base,
-				jevUrl,
-				model
-			}, new AbortController().signal);
 		} catch {}
 		return next(e);
 	});
