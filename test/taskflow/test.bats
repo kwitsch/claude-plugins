@@ -111,8 +111,8 @@ followed_by() { # <head> <next> <file>
 
 # --- workflows/ ---
 
-@test "both workflow scripts exist and declare export const meta" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
+@test "the plugin workflow scripts exist and declare export const meta" {
+  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
     [ -s "$WORKFLOWS/$f" ]
     run rg_or_grep -F 'export const meta = {' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
@@ -120,8 +120,6 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "workflow meta names match their filenames" {
-  run rg_or_grep -E "name:[[:space:]]*[\"']design-to-spec[\"']" "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
   run rg_or_grep -E "name:[[:space:]]*[\"']spec-driven-delivery[\"']" "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -E "name:[[:space:]]*[\"']changes-review[\"']" "$WORKFLOWS/changes-review.workflow.js"
@@ -129,7 +127,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "workflow scripts guard args via a decodeArgs fail-fast" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
+  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
     run rg_or_grep -F 'function decodeArgs' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "stage:[[:space:]]*[\"']args[\"']" "$WORKFLOWS/$f"
@@ -138,7 +136,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "workflow scripts contain no leftover German comments" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
+  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
     run rg_or_grep -cE '[äöüßÄÖÜ]' "$WORKFLOWS/$f"
     [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
     # ASCII-only German (no diacritics, e.g. "// wenn ..."): scan comment text
@@ -149,30 +147,16 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "every agentType referenced by the workflows has a matching agents/*.md file" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
+  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
     for name in $(rg_or_grep -oE "taskflow:[a-z-]+" "$WORKFLOWS/$f" | sed 's/taskflow://' | sort -u); do
       [ -f "$AGENTS_DIR/$name.md" ]
     done
   done
 }
 
-@test "both workflow scripts forbid narrative text in every inline (non-agentType) prompt" {
-  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
+@test "the plugin workflow scripts forbid narrative text in every inline (non-agentType) prompt" {
   run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  for p in 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'specReviewerPrompt = `${NO_NARRATION}'; do
-    run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
-    [ "$status" -eq 0 ]
-  done
-  followed_by 'specWriterPrompt = (revision) =>' '`${NO_NARRATION}' "$WORKFLOWS/design-to-spec.workflow.js"
-  followed_by 'graphmindExplorePrompt = (s) =>' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' "$WORKFLOWS/design-to-spec.workflow.js"
-  # design-to-spec's graphmind-path explorer prompt must exist, carry the NO_NARRATION
-  # prefix, and name the graphmind tools + project param (conditional graphmind path).
-  for p in 'graphmindExplorePrompt = (' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
-    run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
-    [ "$status" -eq 0 ]
-  done
   run rg_or_grep -F 'planCheckerPrompt = `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   for p in 'implementerPrompt = (t, isolated) =>' 'reviewerPrompt = (t, implReport, isolated) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>'; do
@@ -278,23 +262,18 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "designer and planner agents require English output regardless of input language" {
-  run rg_or_grep -iF 'English' "$AGENTS_DIR/designer.md"
+@test "designer role file and planner agent require English output regardless of input language" {
+  run rg_or_grep -iF 'English' "$REFS/designer.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -iF 'English' "$AGENTS_DIR/planner.md"
   [ "$status" -eq 0 ]
 }
 
-@test "the inline spec-writer prompt requires English output regardless of the draft's language" {
-  run rg_or_grep -iF 'English' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
 # --- agents ---
 
-AGENT_NAMES="planner designer design-reviewer review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer"
+AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer"
 
-@test "all 11 agent files exist with matching name frontmatter" {
+@test "all 9 agent files exist with matching name frontmatter" {
   for a in $AGENT_NAMES; do
     [ -f "$AGENTS_DIR/$a.md" ]
     run rg_or_grep -E "^name:[[:space:]]*$a\$" "$AGENTS_DIR/$a.md"
@@ -302,15 +281,15 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "all agent files declare a model; designer and planner on opus, design-reviewer and the recall-critical roles on sonnet, the rest haiku" {
+@test "all agent files declare a model; planner on opus, the recall-critical roles on sonnet, the rest haiku" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
     case "$a" in
-      designer | planner)
+      planner)
         run rg_or_grep -E '^model: opus$' "$AGENTS_DIR/$a.md"
         ;;
-      design-reviewer | review-finder | review-verifier | fix-applier | ci-fixer)
+      review-finder | review-verifier | fix-applier | ci-fixer)
         run rg_or_grep -E '^model: sonnet$' "$AGENTS_DIR/$a.md"
         ;;
       *)
@@ -345,7 +324,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 }
 
 @test "read-only-declared agents carry a least-privilege tools allowlist without Write/Edit" {
-  for a in design-reviewer review-finder review-verifier ci-monitor; do
+  for a in review-finder review-verifier ci-monitor; do
     run rg_or_grep -E '^tools:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "^tools:.*[[:space:],\\[\\]\"'](Write|Edit)([[:space:],\\[\\]\"']|\$)" "$AGENTS_DIR/$a.md"
@@ -425,29 +404,10 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "design-to-spec workflow retries the spec reviewer once and reports specReviewed" {
-  run rg_or_grep -F 'function reviewSpec' "$WORKFLOWS/design-to-spec.workflow.js"
+@test "the designer prompt and role file both disambiguate openQuestions as its own structured-output field" {
+  run rg_or_grep -F 'never embedded as text/tags' "$REFS/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'specReviewed' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the scout's proposed subsystems are deduped before the budget slice" {
-  run rg_or_grep -F 'seenProposedNames' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the designer retries on a schema-valid but content-contaminated keypoints field, not just a null result" {
-  run rg_or_grep -F 'function hasContaminatedKeypoints' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'if (d === null || hasContaminatedKeypoints(d))' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the designer prompt and agent doc both disambiguate openQuestions as its own structured-output field" {
-  run rg_or_grep -F 'never embedded as text/tags' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'never write `openQuestions` as text or tags' "$AGENTS_DIR/designer.md"
+  run rg_or_grep -F 'never write `openQuestions` as text or tags' "$REFS/designer.md"
   [ "$status" -eq 0 ]
 }
 
@@ -463,11 +423,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 # --- Model assignment: unpinned family aliases + difficulty classifier ---
 
 @test "workflow model tiers are unpinned to bare aliases with the classifier maps present" {
-  run rg_or_grep -F 'const DESIGN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" }' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' "$REFS/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const designerModel = (d) => DESIGN_MODEL[d] || "opus"' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' "$REFS/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'model: DESIGNER_MODEL' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'model: DESIGNER_MODEL' "$REFS/design.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'const PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -ne 0 ]
@@ -487,19 +447,19 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "design-to-spec scout schema carries a 3-tier difficulty enum driving the designer model" {
-  run rg_or_grep -F 'required: ["subsystems", "difficulty"]' "$WORKFLOWS/design-to-spec.workflow.js"
+@test "explore scout schema carries no difficulty; the designer model comes from build-task's SIZE" {
+  run rg_or_grep -F 'required: ["subsystems"]' "$REFS/explore.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'difficulty: { enum: ["simple", "complex", "hardest"] }' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'let DESIGNER_MODEL = designerModel(scout.difficulty)' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'difficulty' "$REFS/explore.workflow.js"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'let DESIGNER_MODEL = designerModel(SIZE)' "$REFS/design.workflow.js"
   [ "$status" -eq 0 ]
 }
 
-@test "design-to-spec designer dispatch falls back from fable to opus on a throw" {
-  run rg_or_grep -F 'if (DESIGNER_MODEL !== "fable") throw e;' "$WORKFLOWS/design-to-spec.workflow.js"
+@test "design.workflow.js designer dispatch falls back from fable to opus on a throw" {
+  run rg_or_grep -F 'if (DESIGNER_MODEL !== "fable") throw e;' "$REFS/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'DESIGNER_MODEL = "opus";' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'DESIGNER_MODEL = "opus";' "$REFS/design.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -528,7 +488,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 }
 
 @test "sonnet and haiku workflow assignments stay bare aliases" {
-  run rg_or_grep -F 'explorer: "haiku"' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'explorer: "haiku"' "$REFS/explore.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
@@ -980,9 +940,9 @@ mm_git_fixture() {
   [ "$output" = "" ]
 }
 
-@test "the agent roster is still exactly 11 *.md files" {
+@test "the agent roster is exactly 9 *.md files" {
   run bash -c "ls '$AGENTS_DIR'/*.md | wc -l | tr -d '[:space:]'"
-  [ "$output" = "11" ]
+  [ "$output" = "9" ]
 }
 
 @test "plugin README and layout document the changes-audit skill and changes-review workflow" {
@@ -1001,7 +961,7 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'skills/changes-audit/' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F '9 static role prompts' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 
@@ -1135,36 +1095,54 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
 }
 
-@test "CLAUDE.md documents bin/ship-ensure-mergeable.sh alongside the 11-agent roster" {
+@test "CLAUDE.md documents bin/ship-ensure-mergeable.sh alongside the 9-agent roster" {
   run rg_or_grep -F 'ship-ensure-mergeable.sh' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F '9 static role prompts' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 
 # --- ponytail design-phase enforcement ---
 
 @test "designer prompt embeds the ponytail reuse ladder and the never-trim carve-out" {
-  run rg_or_grep -iF 'reuse ladder' "$AGENTS_DIR/designer.md"
+  run rg_or_grep -iF 'reuse ladder' "$REFS/designer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'stdlib' "$AGENTS_DIR/designer.md"
+  run rg_or_grep -iF 'stdlib' "$REFS/designer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'No unrequested abstractions' "$AGENTS_DIR/designer.md"
+  run rg_or_grep -iF 'No unrequested abstractions' "$REFS/designer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'USER DECISION' "$AGENTS_DIR/designer.md"
+  run rg_or_grep -F 'USER DECISION' "$REFS/designer.md"
   [ "$status" -eq 0 ]
 }
 
 @test "design-reviewer checklist includes the over-engineering (ponytail) item 8" {
-  run rg_or_grep -iF 'Over-engineering (ponytail)' "$AGENTS_DIR/design-reviewer.md"
+  run rg_or_grep -iF 'Over-engineering (ponytail)' "$REFS/design-reviewer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -E '^8\.' "$AGENTS_DIR/design-reviewer.md"
+  run rg_or_grep -E '^8\.' "$REFS/design-reviewer.md"
   [ "$status" -eq 0 ]
 }
 
 @test "the spec-writer prompt carries the draft's lean/YAGNI decisions forward" {
-  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$REFS/spec.workflow.js"
   [ "$status" -eq 0 ]
+}
+
+@test "design-only roles live as build-task role files without frontmatter; old agent and workflow files are gone" {
+  for r in designer design-reviewer; do
+    [ -s "$REFS/$r.md" ]
+    [ ! -e "$AGENTS_DIR/$r.md" ]
+    run head -n 1 "$REFS/$r.md"
+    [ "$output" = "# $r — role definition" ]
+    run rg_or_grep -E '^(---|name:|model:|tools:|description:)' "$REFS/$r.md"
+    [ "$status" -ne 0 ]
+    run rg_or_grep -F 'No narrative text between tool calls' "$REFS/$r.md"
+    [ "$status" -ne 0 ]
+    run rg_or_grep -F 'design-to-spec' "$REFS/$r.md"
+    [ "$status" -ne 0 ]
+  done
+  run rg_or_grep -F 'You are read-only: never use Write, Edit, NotebookEdit, or a Bash command that changes files or git state.' "$REFS/design-reviewer.md"
+  [ "$status" -eq 0 ]
+  [ ! -e "$WORKFLOWS/design-to-spec.workflow.js" ]
 }
 
 # --- ponytail report-only lean review (delivery pipeline) ---

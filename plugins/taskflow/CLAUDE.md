@@ -10,7 +10,7 @@ The plugin ships these components:
 - `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` + `workflows/changes-review.workflow.js` — the Workflow-tool scripts that do the heavy lifting; run namespaced as `/taskflow:<name>`.
   - The `AGENTS` map (namespace = plugin name) lives in each script; `changes-review` carries only the finder/verifier subset (it never dispatches `fix-applier`).
   - Renaming the plugin requires updating the `AGENTS` namespace prefix in each script.
-- `agents/*.md` — 11 static role prompts dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL: each agent's description says not to delegate to it directly. `review-finder`, `review-verifier` and `fix-applier` have two entry points (`spec-driven-delivery` and `changes-review`/`changes-audit`); their frontmatter descriptions say so.
+- `agents/*.md` — 9 static role prompts dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL: each agent's description says not to delegate to it directly. `review-finder`, `review-verifier` and `fix-applier` have two entry points (`spec-driven-delivery` and `changes-review`/`changes-audit`); their frontmatter descriptions say so.
 - `bin/ship-ensure-mergeable.sh` — Ship merge-state remediation: `shipper` runs it before the ci-monitor loop to auto-update a `behind` branch or auto-resolve `-X ours`-clean conflicts so CI actually starts. Zero-dep bash, `chmod +x`.
 
 ## Agent files and no-narration
