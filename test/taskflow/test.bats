@@ -97,16 +97,31 @@ followed_by() { # <head> <next> <file>
   [ "$status" -ne 0 ]
 }
 
-@test "build-task SKILL.md references both workflow reference files" {
-  run rg_or_grep -F 'references/design-to-spec.md' "$SKILL/SKILL.md"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'references/spec-driven-delivery.md' "$SKILL/SKILL.md"
-  [ "$status" -eq 0 ]
+@test "build-task SKILL.md references all four usage reference files" {
+  for f in explore.md design.md spec.md spec-driven-delivery.md; do
+    run rg_or_grep -F "references/$f" "$SKILL/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
 }
 
-@test "both workflow reference files exist and are non-empty" {
-  [ -s "$REFS/design-to-spec.md" ]
-  [ -s "$REFS/spec-driven-delivery.md" ]
+@test "all four usage reference files exist and are non-empty; design-to-spec.md is gone" {
+  for f in explore.md design.md spec.md spec-driven-delivery.md; do
+    [ -s "$REFS/$f" ]
+  done
+  [ ! -e "$REFS/design-to-spec.md" ]
+}
+
+@test "build-task SKILL.md runs the design pipeline by scriptPath and sizes the task (jev-api or own reasoning)" {
+  for p in 'Skill dir: ${CLAUDE_SKILL_DIR}' 'REFS_DIR' 'scriptPath' 'explore.workflow.js' 'design.workflow.js' 'spec.workflow.js' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'taskflow:spec-driven-delivery'; do
+    run rg_or_grep -F -- "$p" "$SKILL/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
+  for absent in 'design-to-spec' 'difficulty'; do
+    run rg_or_grep -F -- "$absent" "$SKILL/SKILL.md"
+    [ "$status" -ne 0 ]
+  done
+  run bash -c "wc -l < '$SKILL/SKILL.md' | tr -d '[:space:]'"
+  [ "$output" -lt 500 ]
 }
 
 @test "build-task design-pipeline usage references exist and document their contracts" {
@@ -544,16 +559,16 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
   [ "$status" -eq 0 ]
 }
 
-@test "README Agents table and both workflow references drop the pinned model ID for classifier phrasing" {
+@test "README Agents table and the design/delivery references drop the pinned model ID for size/classifier phrasing" {
   run rg_or_grep -F 'claude-opus-4-8' "$PLUGIN/README.md"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F 'claude-opus-4-8' "$REFS/design-to-spec.md"
+  run rg_or_grep -F 'claude-opus-4-8' "$REFS/design.md"
   [ "$status" -ne 0 ]
   run rg_or_grep -F 'claude-opus-4-8' "$REFS/spec-driven-delivery.md"
   [ "$status" -ne 0 ]
   run rg_or_grep -F 'fable' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'fable' "$REFS/design-to-spec.md"
+  run rg_or_grep -F 'fable' "$REFS/design.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'fable' "$REFS/spec-driven-delivery.md"
   [ "$status" -eq 0 ]
@@ -1240,8 +1255,8 @@ mm_git_fixture() {
   done
 }
 
-@test "reference docs document GRAPHMIND_AVAILABLE and REPO_PATH for both workflows" {
-  for f in design-to-spec.md spec-driven-delivery.md; do
+@test "reference docs document GRAPHMIND_AVAILABLE and REPO_PATH for the explore script and the delivery workflow" {
+  for f in explore.md spec-driven-delivery.md; do
     run rg_or_grep -F '`GRAPHMIND_AVAILABLE`' "$REFS/$f"
     [ "$status" -eq 0 ]
     run rg_or_grep -F '`REPO_PATH`' "$REFS/$f"
