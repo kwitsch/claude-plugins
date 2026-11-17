@@ -24,7 +24,7 @@
     "plugins/jev-solver",
     "plugins/graphmind-helper",
     "plugins/rc-enhancement",
-    "plugins/universal-format/mcp/server.mjs"
+    "plugins/universal-format"
   ],
   "plugins": [
     "npm:@dprint/typescript@0.96.1",

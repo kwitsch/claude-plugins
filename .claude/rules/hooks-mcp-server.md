@@ -45,8 +45,8 @@ state in between). `universal-lint` (async — read-only, exactly one hook) is t
 repo's single-hook example.
 
 `universal-format` is the one deliberate exception to the self-contained zero-dep
-`mcp/server.mjs` shape (a committed `bun build` bundle plus committed `.wasm` sidecars)
-— see `plugins/universal-format/CLAUDE.md`.
+`mcp/server.mjs` shape (a committed `bun build` bundle plus committed `.wasm` sidecars);
+it is a synced plugin, developed in kwitsch/claude-plugins-development.
 
 Why the limits (documented Claude Code behavior):
 
@@ -142,8 +142,8 @@ Substitution is **string-only** (see the event matrix's
 `input_substitution_type_preservation`): a placeholder resolving to a
 boolean/object in the source hook JSON arrives as a stringified value
 (`"true"`/`"false"`), so a handler comparing against a literal `true`/`false` must
-also accept the string form for any such field. `plugins/universal-format/CLAUDE.md`'s
-"Explicit hook input" section is the worked example.
+also accept the string form for any such field. `universal-format`'s "Explicit hook input"
+section (its `CLAUDE.md` in kwitsch/claude-plugins-development) is the worked example.
 
 ## `bin/mjs-launch.sh` (OPTIONAL bun-preferred wrapper — not the default)
 

@@ -19,7 +19,6 @@ jobs:
         plugin:
           - cc-knowledge
           - coding-toolbox
-          - universal-format
           - memory-enhancement
           - npm-automations
           - taskflow
