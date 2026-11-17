@@ -20,7 +20,7 @@
     {
       "name": "coding-toolbox",
       "source": "./plugins/coding-toolbox",
-      "description": "Mechanically enforces the Interaction axis on Stop and blocks non-UTF-8 file operations; the golden behavior rules doc is available as an opt-in project rule via the setup-rules skill.",
+      "description": "Blocks non-UTF-8 file operations; the golden behavior rules doc is available as an opt-in project rule via the setup-rules skill.",
       "author": {
         "name": "Kwitsch"
       },
@@ -70,7 +70,7 @@
     {
       "name": "rc-enhancement",
       "source": "./plugins/rc-enhancement",
-      "description": "SessionStart hook that injects one critical must-follow rule: all user interaction goes through the AskUserQuestion tool — never end a turn with a plain-text question, and capture free-text answers via the tool's Other option alongside an Abort/Cancel option.",
+      "description": "Interaction contract: a SessionStart hook injects the critical rule that all user interaction goes through the AskUserQuestion tool (never a plain-text question; free-text answers via Other plus an Abort/Cancel option), and a mods gate re-prompts once when a turn still ends in a plain-text question, pointing back at that rule.",
       "author": {
         "name": "Kwitsch"
       },

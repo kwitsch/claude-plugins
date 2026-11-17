@@ -43,13 +43,3 @@ Blocks content operations on non-UTF-8 files by answering `{ deny: reason }` wit
 
 - Every `git` call is `$.process.run(["git", ...], { cwd, timeoutMs: 30_000 })`. The bound is per call, not per fire: a worst-case fire (`remote set-head`, `remote show origin`, `fetch`, `rebase`) can add up to a multiple of it.
 - A timeout rejects; it surfaces through the same fetch-failure / rebase-report path as any other git failure, never as a hang.
-
-## Interaction gate (`turn.start` + `turn.complete`)
-
-A main-loop turn whose answer ends with a plain-text question gets one plugin prompt telling Claude to redo it via `AskUserQuestion`.
-
-- Heuristic (`isBareQuestion`): strip fenced code blocks, take the last non-empty line; if it ends in `?`, gate. Keep it blunt: a rhetorical trailing `?` is an accepted false positive, traded for simplicity and for matching the Interaction axis's own "no exceptions" wording.
-- Only `reason === "answer"` main-loop turns (`e.agentId === undefined`); subagents, interrupted and errored turns are never gated.
-- Mechanism: user-tier mods have no native Stop block (`classic.Stop` is bypassed by `cc-plugin-sec-default`). `turn.complete` therefore calls `$.prompt.submit({ text: GATE_REASON })` unawaited: the engine queues a framed plugin prompt ("The coding-toolbox plugin sent a message: …") that starts a new turn once the session is idle. Awaiting it would wait for that turn to start, which waits for this turn to end.
-- Loop guard (replaces the platform's `stop_hook_active` and 8-consecutive-block cap): `turn.start` records the main-loop turn whose prompt contains `GATE_REASON` (`isGateTurn`), and `turn.complete` never gates that turn. So at most one re-prompt per user turn. Backstop for a framing change the text match would miss: a submit also marks the next main-loop turn as the gate's (`gatePending`), so the gate can never loop; a user prompt that happens to start first takes that exemption instead (at worst one missed gate). Module state: a hot reload forgets both, which at worst lets one more re-prompt through.
-- Behaviour change vs. the old `Stop` block: the questioning answer is no longer suppressed — the turn ends, its answer stays visible, and the correction arrives as a separate turn. In `claude -p` that second turn runs before the process exits.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Mods hooks module wiring (encoding guard, worktree refresh, interaction gate) — coding-toolbox plugin.
+# Mods hooks module wiring (encoding guard, worktree refresh) — coding-toolbox plugin.
 # The hooks' logic is unit-tested by test/coding-toolbox/*.test.mjs (pnpm run test:unit); their
 # wiring by plugins/coding-toolbox/tests/*.test.ts (claude plugin test, local only).
 
@@ -19,14 +19,10 @@ setup() {
   [ -f "$HOOKS/policy.mjs" ]
   [ -f "$PLUGIN/tests/coding-toolbox.test.ts" ]
 }
-@test "register.ts hooks the four guarded tools, EnterWorktree, turn.start and turn.complete" {
+@test "register.ts hooks the four guarded tools and EnterWorktree; the interaction gate lives in rc-enhancement" {
   run grep -F 'on("tool.call", { tool: ["Read", "Edit", "Write", "Bash"] }' "$HOOKS/register.ts"
   assert_success
   run grep -F 'on("tool.call", { tool: "EnterWorktree" }' "$HOOKS/register.ts"
-  assert_success
-  run grep -F 'on("turn.start"' "$HOOKS/register.ts"
-  assert_success
-  run grep -F 'on("turn.complete"' "$HOOKS/register.ts"
   assert_success
 }
 @test "the worktree_refresh toggle reaches the module through options, not an MCP server env" {
