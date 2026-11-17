@@ -1,14 +1,13 @@
 {
-  "description": "SessionStart: cat hooks/SessionStart.md as additionalContext — injects the AskUserQuestion critical interaction rule. No matcher — fires on every source (startup/resume/clear/compact) since /clear and /compact wipe context same as a fresh startup; must not be restricted to 'startup'. SessionStart is a command-hook-only event (mcp_tool hard-errors pre-connect). Plus the ./register.ts mods module: the interaction gate, whose re-prompt points back at that rule.",
-  "modules": ["./register.ts"],
+  "description": "SessionStart (no matcher: startup, resume, /clear and /compact alike, since /clear and /compact wipe context the same way) runs session-start.mjs, which prints the CRITICAL AskUserQuestion interaction rule as session context. The ./register.mjs mods module is the interaction gate, whose re-prompt points back at that rule.",
+  "modules": ["./register.mjs"],
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "cat",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"],
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
             "timeout": 5
           }
         ]
