@@ -188,6 +188,32 @@ followed_by() { # <head> <next> <file>
   done
 }
 
+# --- build-task design-pipeline scripts (skills/build-task/references/*.workflow.js) ---
+
+@test "explore.workflow.js: meta, args guard, NO_NARRATION on every prompt, graphmind path, scribe" {
+  F="$REFS/explore.workflow.js"
+  [ -s "$F" ]
+  for p in 'export const meta = {' 'name: "build-task-explore"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH"], { GRAPHMIND_AVAILABLE: false, REPO_PATH: "" })' 'const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";' 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'seenProposedNames' 'explorer: "haiku"' 'scribe: "haiku"' 'required: ["subsystems"]' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' '## Recorded project knowledge (graphmind memory)' 'scribePrompt = `${NO_NARRATION}' '<<<BEGIN>>>' 'label: "scribe:retry"' 'scribe could not write EXPLORE_PATH' 'explorePath: EXPLORE_PATH'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  followed_by 'graphmindExplorePrompt = (s) =>' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' "$F"
+  followed_by 'graphmindRecallPrompt = () =>' '`${NO_NARRATION}' "$F"
+  followed_by 'explorerPrompt = (s) =>' '`${NO_NARRATION}' "$F"
+  for absent in 'difficulty' 'resumeNote' 'AGENTS' 'taskflow:' 'DRAFT_PATH' 'SPEC_PATH'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+  # the only agentType allowed in the design pipeline is the built-in Explore agent
+  run bash -c "grep -n 'agentType' '$F' | grep -v 'agentType: \"Explore\"' || true"
+  [ "$output" = "" ]
+}
+
+@test "build-task design-pipeline scripts parse as async function bodies" {
+  run node -e 'const fs=require("fs");for(const f of process.argv.slice(1)){new (Object.getPrototypeOf(async function(){}).constructor)(fs.readFileSync(f,"utf8").replace(/^export /m,""))}' "$REFS"/*.workflow.js
+  [ "$status" -eq 0 ]
+}
+
 @test "eslint.config.mjs ignores *.workflow.js (top-level await/return, not a standalone module)" {
   run rg_or_grep -F '*.workflow.js' "$ESLINT_CONFIG"
   [ "$status" -eq 0 ]
