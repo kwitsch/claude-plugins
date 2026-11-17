@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const RULE = `# CRITICAL RULE — how to interact with the user
+process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:`SessionStart`,additionalContext:`# CRITICAL RULE — how to interact with the user
 
 **ALL user interaction ALWAYS goes through the \`AskUserQuestion\` tool. A turn must NEVER end with output text that ends in a question mark. Ask every question through \`AskUserQuestion\`, never as plain text.**
 
@@ -23,10 +23,25 @@ This rule exists so the session can be driven remotely: the user must always be 
    tool's **Other** option — never by asking the user to type into a
    plain-text reply.
 
+## Output format
+
+Never state a question in your answer and then answer it yourself ("Why is
+that? Because ..."). Write a short heading line ending in a colon, followed by
+a bullet list, instead:
+
+\`\`\`
+Reasons for the change:
+
+* reason 1
+* reason 2
+\`\`\`
+
+A real question to the user is never part of an answer: it goes through
+\`AskUserQuestion\` (rule above).
+
 ## Restated
 
 **Use \`AskUserQuestion\` for every question. Never end a turn on a plain-text
 question mark. For free-text, offer an Abort/Cancel option and route the
 answer through the tool's Other option.**
-`;
-process.stdout.write(RULE);
+`}}));

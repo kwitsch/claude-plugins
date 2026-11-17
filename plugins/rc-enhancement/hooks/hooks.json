@@ -1,13 +1,22 @@
 {
-  "description": "SessionStart (no matcher: startup, resume, /clear and /compact alike, since /clear and /compact wipe context the same way) runs session-start.mjs, which prints the CRITICAL AskUserQuestion interaction rule as session context. The ./register.mjs mods module is the interaction gate, whose re-prompt points back at that rule.",
-  "modules": ["./register.mjs"],
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs\"",
             "timeout": 5
           }
         ]
