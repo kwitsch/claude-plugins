@@ -1,4 +1,4 @@
-// Interaction gate (turn.complete → one framed $.prompt.submit): pure heuristic and loop-guard predicate.
+// Interaction gate (turn.complete → one framed plugin prompt): pure heuristic and loop-guard predicate.
 
 // The prompt the gate submits. It points at the CRITICAL RULE that hooks/SessionStart.md injects at session
 // start, and the turn it starts is recognized by this text, so it never re-prompts its own retry (the loop guard).
