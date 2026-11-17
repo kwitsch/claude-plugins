@@ -1,0 +1,1 @@
+import{i as e}from"./rolldown-runtime-Bqa9N8x3.mjs";import{t}from"./prettier-Bi3rd8fp.mjs";const n=()=>import(`./dist-DYca__3A.mjs`),r=()=>import(`./src-jHGeOCUh.mjs`),i=()=>Promise.all([import(`./wasm_exec-ByquKAfX.mjs`).then(t=>e(t.t(),1)),import(`./lib-BrnIWFqF.mjs`)]).then(([,e])=>e);export{n as loadJava,r as loadPhp,i as loadShell,t as prettier};
