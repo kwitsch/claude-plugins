@@ -109,6 +109,32 @@ followed_by() { # <head> <next> <file>
   [ -s "$REFS/spec-driven-delivery.md" ]
 }
 
+@test "build-task design-pipeline usage references exist and document their contracts" {
+  for f in explore.md design.md spec.md; do
+    [ -s "$REFS/$f" ]
+    for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'"; do
+      run rg_or_grep -F -- "$p" "$REFS/$f"
+      [ "$status" -eq 0 ]
+    done
+    run rg_or_grep -F 'claude-opus-4-8' "$REFS/$f"
+    [ "$status" -ne 0 ]
+    run rg_or_grep -F 'design-to-spec' "$REFS/$f"
+    [ "$status" -ne 0 ]
+  done
+  for p in '`TASK`' '`EXPLORE_PATH`' '`GRAPHMIND_AVAILABLE`' '`REPO_PATH`' '`explorePath`' '`subsystems`' 'haiku'; do
+    run rg_or_grep -F -- "$p" "$REFS/explore.md"
+    [ "$status" -eq 0 ]
+  done
+  for p in '`EXPLORE_PATH`' '`DRAFT_PATH`' '`REFS_DIR`' '`SIZE`' '`RESUME`' '`USER_INPUT`' '`user_input_required`' '`minorFindings`' 'fable' 'graphmind is not used in this phase; `GRAPHMIND_AVAILABLE` and `REPO_PATH` are Explore-only'; do
+    run rg_or_grep -F -- "$p" "$REFS/design.md"
+    [ "$status" -eq 0 ]
+  done
+  for p in '`DRAFT_PATH`' '`SPEC_PATH`' '`specPath`' '`specReviewed`' '`minorFindings`'; do
+    run rg_or_grep -F -- "$p" "$REFS/spec.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
 # --- workflows/ ---
 
 @test "the plugin workflow scripts exist and declare export const meta" {
