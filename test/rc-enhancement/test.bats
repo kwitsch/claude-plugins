@@ -8,8 +8,8 @@ setup() {
   HOOKS="$PLUGIN/hooks/hooks.json"
 }
 
-@test "plugin.json is valid, pins version 0.1.0, and has required fields" {
-  run jq -e '.name == "rc-enhancement" and .version == "0.1.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json is valid, pins version 0.2.0, and has required fields" {
+  run jq -e '.name == "rc-enhancement" and .version == "0.2.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -78,4 +78,41 @@ setup() {
   plugin_desc="$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")"
   market_desc="$(jq -r '.plugins[] | select(.name == "rc-enhancement") | .description' "$REPO_ROOT/.claude-plugin/marketplace.json")"
   [ "$plugin_desc" = "$market_desc" ]
+}
+
+@test "hooks.json lists the mods module next to the SessionStart hook" {
+  run jq -e '.modules == ["./register.ts"]' "$HOOKS"
+  assert_success
+}
+
+@test "gate module files exist and gate.mjs stays pure (never references the mods API)" {
+  [ -f "$PLUGIN/hooks/register.ts" ]
+  [ -f "$PLUGIN/hooks/gate.mjs" ]
+  [ -f "$PLUGIN/tests/rc-enhancement.test.ts" ]
+  run grep -nE '\$\.[a-z]+\.' "$PLUGIN/hooks/gate.mjs"
+  assert_failure
+}
+
+@test "register.ts hooks turn.start and turn.complete" {
+  run grep -F 'on("turn.start"' "$PLUGIN/hooks/register.ts"
+  assert_success
+  run grep -F 'on("turn.complete"' "$PLUGIN/hooks/register.ts"
+  assert_success
+}
+
+@test "the gate re-prompt points back at the SessionStart rule" {
+  run grep -F 'CRITICAL RULE' "$PLUGIN/hooks/gate.mjs"
+  assert_success
+}
+
+@test "claude plugin validate succeeds" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin validate "$PLUGIN"
+  assert_success
+}
+
+@test "claude plugin test succeeds" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin test "$PLUGIN"
+  assert_success
 }

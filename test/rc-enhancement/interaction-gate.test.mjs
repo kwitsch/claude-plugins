@@ -1,9 +1,9 @@
 // Interaction gate (turn.complete → one framed $.prompt.submit) — the pure heuristic and
-// loop-guard predicate in plugins/coding-toolbox/hooks/policy.mjs. Hook wiring (exactly
-// one re-prompt per user turn) is covered by plugins/coding-toolbox/tests/.
+// loop-guard predicate in plugins/rc-enhancement/hooks/gate.mjs. Hook wiring (exactly
+// one re-prompt per user turn) is covered by plugins/rc-enhancement/tests/.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GATE_REASON, isBareQuestion, isGateTurn } from "../../plugins/coding-toolbox/hooks/policy.mjs";
+import { GATE_REASON, isBareQuestion, isGateTurn } from "../../plugins/rc-enhancement/hooks/gate.mjs";
 
 test("gates when the final line ends in a bare '?'", () => {
   assert.equal(isBareQuestion("Done here.\nWant me to X or Y?"), true);
@@ -23,7 +23,7 @@ test("the reason tells Claude to redo it via AskUserQuestion", () => {
 
 test("a turn started by the gate's own prompt, framed or bare, is recognized", () => {
   assert.equal(isGateTurn(GATE_REASON), true);
-  assert.equal(isGateTurn(`The coding-toolbox plugin sent a message: ${GATE_REASON}`), true);
+  assert.equal(isGateTurn(`The rc-enhancement plugin sent a message: ${GATE_REASON}`), true);
   assert.equal(isGateTurn("please continue"), false);
   assert.equal(isGateTurn(""), false);
 });

@@ -1,9 +1,10 @@
 # rc-enhancement
 
-SessionStart hook that injects one critical must-follow rule: all user
-interaction goes through the `AskUserQuestion` tool — never end a turn with a
-plain-text question, and capture free-text answers via the tool's Other option
-alongside an Abort/Cancel option.
+Interaction contract: a `SessionStart` hook injects the critical rule that all
+user interaction goes through the `AskUserQuestion` tool (never a plain-text
+question; free-text answers via Other plus an Abort/Cancel option), and a mods
+gate re-prompts once when a turn still ends in a plain-text question, pointing
+back at that rule.
 
 ## Install
 
@@ -26,8 +27,12 @@ alongside an Abort/Cancel option.
 
 ## Notes & limitations
 
-- **Context injection only, not enforced.** The rule is advisory context; no
-  `Stop`/`PreToolUse` hook mechanically blocks a turn that ends in a plain-text
-  question. A future enforcement hook is a scoped follow-up.
+- **Interaction gate.** A mods module (`hooks/register.ts`) watches main-loop
+  turns: when the final answer's last line (outside code fences) ends in `?`,
+  it submits one plugin message telling Claude to redo it via `AskUserQuestion`
+  per the session-start rule. At most one re-prompt per turn you start;
+  subagents are never gated. The questioning answer stays visible — the
+  correction arrives as a separate turn. A rhetorical trailing `?` is an
+  accepted false positive. Moved here from `coding-toolbox`.
 - **Always on, no toggle.** There is no `userConfig` — this is a single fixed
   contract. Enable the plugin or don't.
