@@ -41,7 +41,7 @@ setup() {
   run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
-@test "plugin.json version bumped for the linux-token-efficiency reference cleanup (this unreleased branch)" {
+@test "plugin.json version bumped for moving the interaction gate to rc-enhancement (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.25.1"
+  assert_output "0.26.0"
 }

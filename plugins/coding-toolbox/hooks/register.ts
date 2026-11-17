@@ -1,12 +1,5 @@
 import type { EngineInterface, Register } from "claude-code";
-import { collectOffenders, decodeBase64, denyReason, FULL_READ_MAX, GATE_REASON, GIT_TIMEOUT_MS, isBareQuestion, isGateTurn, isWorktreeRefreshEnabled, refreshWorktree, SAMPLE_BYTES } from "./policy.mjs";
-
-// The main-loop turn the gate's own re-prompt started: never gated again, so at most one re-prompt per user turn.
-// Module state: a hot reload forgets it, which at worst lets one more re-prompt through.
-let gateTurnId: string | undefined;
-// Backstop for the text match: the next main-loop turn after a submit counts as the gate's, so a changed framing
-// can never loop. A user prompt that starts first takes the exemption instead: at worst one missed gate.
-let gatePending = false;
+import { collectOffenders, decodeBase64, denyReason, FULL_READ_MAX, GIT_TIMEOUT_MS, isWorktreeRefreshEnabled, refreshWorktree, SAMPLE_BYTES } from "./policy.mjs";
 
 // The engine refuses $.<noun> as a bare value, so same-file helpers take the whole $.
 // The first min(size, SAMPLE_BYTES) bytes of a file: whole-file read up to FULL_READ_MAX, `head -c` beyond.
@@ -51,24 +44,4 @@ export const register: Register = (on, options) => {
       return note === undefined ? r : { ...r, context: [...(r.context ?? []), note] };
     });
   }
-
-  // Interaction gate: Stop has no native block for a user-tier mod, so a main-loop answer ending in a bare
-  // question gets one framed plugin prompt that starts a new turn telling Claude to redo it via AskUserQuestion.
-  on("turn.start", ($, e, next) => {
-    if (e.agentId === undefined) {
-      gateTurnId = gatePending || isGateTurn(e.text) ? e.turnId : undefined;
-      gatePending = false;
-    }
-    return next(e);
-  });
-  on("turn.complete", ($, e, next) => {
-    if (e.agentId === undefined && e.reason === "answer" && e.turnId !== gateTurnId && isBareQuestion(e.answer)) {
-      gatePending = true;
-      // Not awaited: it resolves only once the new turn starts, which waits for this turn to end.
-      $.prompt.submit({ text: GATE_REASON }).catch(() => {
-        gatePending = false;
-      });
-    }
-    return next(e);
-  });
 };
