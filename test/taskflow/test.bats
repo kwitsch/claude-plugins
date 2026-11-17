@@ -56,10 +56,22 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.14.0" {
+@test "plugin.json version is 2.0.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.14.0" ]
+  [ "$output" = "2.0.0" ]
+}
+
+@test "marketplace taskflow description matches plugin.json and names the design pipeline" {
+  run jq -r '.plugins[] | select(.name == "taskflow") | .description' "$MARKET"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")" ]
+  [[ "$output" == *"runs the design pipeline (explore, design, spec)"* ]]
+}
+
+@test "no design-to-spec mention survives in the plugin, root README, marketplace or repo memory files" {
+  run grep -rnF 'design-to-spec' "$PLUGIN" "$REPO_ROOT/README.md" "$REPO_ROOT/.claude-plugin" "$REPO_ROOT/.claude/rules" "$REPO_ROOT/plugins/CLAUDE.md" "$REPO_ROOT/CLAUDE.md"
+  [ "$status" -eq 1 ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -1265,7 +1277,7 @@ mm_git_fixture() {
 }
 
 @test "workflows/CLAUDE.md documents the conditional graphmind path and README mentions graphmind" {
-  run rg_or_grep -F '## Conditional graphmind path (design-to-spec explorers, delivery planner)' "$WORKFLOWS/CLAUDE.md"
+  run rg_or_grep -F '## Conditional graphmind path (build-task explorers, delivery planner)' "$WORKFLOWS/CLAUDE.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'graphmindExplorePrompt' "$WORKFLOWS/CLAUDE.md"
   [ "$status" -eq 0 ]
