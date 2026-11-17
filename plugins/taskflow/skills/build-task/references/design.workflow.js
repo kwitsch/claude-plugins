@@ -82,7 +82,12 @@ function decodeArgs(required, defaults) {
 }
 const A = decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH", "REFS_DIR"], { SIZE: "", RESUME: false, USER_INPUT: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { TASK, EXPLORE_PATH, DRAFT_PATH, REFS_DIR, SIZE, RESUME, USER_INPUT } = A;
+const { TASK, EXPLORE_PATH, DRAFT_PATH, REFS_DIR, SIZE, USER_INPUT: RAW_USER_INPUT } = A;
+const RESUME = A.RESUME === true || A.RESUME === "true"; // string args: "false" is truthy
+const USER_INPUT = typeof RAW_USER_INPUT === "string" ? RAW_USER_INPUT : JSON.stringify(RAW_USER_INPUT);
+for (const [k, v] of [["EXPLORE_PATH", EXPLORE_PATH], ["DRAFT_PATH", DRAFT_PATH]]) {
+  if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
+}
 if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESUME=true requires USER_INPUT (the answers to the previously returned questions)" };
 if (typeof REFS_DIR !== "string" || !REFS_DIR.startsWith("/")) return { status: "error", stage: "args", error: "REFS_DIR must be an absolute path" };
 
@@ -206,18 +211,27 @@ function hasContaminatedKeypoints(d) {
 // account/session without Fable access throws on dispatch rather than
 // returning null, so an XL task must not be stuck retrying 'fable'.
 async function runDesigner(mode, extra, label) {
-  const opts = () => ({ label, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL });
-  let d;
-  try {
-    d = await agent(designerPrompt(mode, extra), opts());
-  } catch (e) {
-    if (DESIGNER_MODEL !== "fable") throw e;
-    log("designer dispatch on fable failed (" + e.message + ") — falling back to opus for the rest of this run");
-    DESIGNER_MODEL = "opus";
-    d = await agent(designerPrompt(mode, extra), { ...opts(), label: label + ":fable-fallback" });
+  const opts = (l) => ({ label: l, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL });
+  const run = async (l) => {
+    try {
+      return await agent(designerPrompt(mode, extra), opts(l));
+    } catch (e) {
+      if (DESIGNER_MODEL !== "fable") throw e;
+      log("designer dispatch on fable failed (" + e.message + ") — falling back to opus for the rest of this run");
+      DESIGNER_MODEL = "opus";
+      return await agent(designerPrompt(mode, extra), opts(l + ":fable-fallback"));
+    }
+  };
+  let d = await run(label);
+  if (d === null || hasContaminatedKeypoints(d)) {
+    if (d === null && DESIGNER_MODEL === "fable") {
+      log("designer on fable returned null (usage limit?) — retrying on opus");
+      DESIGNER_MODEL = "opus";
+    }
+    d = await run(label + ":retry");
   }
-  if (d === null || hasContaminatedKeypoints(d)) d = await agent(designerPrompt(mode, extra), { ...opts(), label: label + ":retry" });
-  return d;
+  // A contaminated retry is as unusable as null — fail rather than show it.
+  return d === null || hasContaminatedKeypoints(d) ? null : d;
 }
 
 const designReviewerPrompt = `${NO_NARRATION}\n\nRead your role definition at ${ROLE.reviewer} first and follow it exactly. You are read-only.\n\nDesign task:
@@ -233,6 +247,7 @@ async function reviewDesign(label) {
   const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: MODELS.designReview };
   let r = await agent(designReviewerPrompt, opts);
   if (r === null) r = await agent(designReviewerPrompt, { ...opts, label: label + ":retry" });
+  if (r && !Array.isArray(r.findings)) r.findings = [];
   return r;
 }
 

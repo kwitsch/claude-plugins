@@ -154,10 +154,11 @@ if (!scout) {
 // LLM-chosen name's literal '|' is replaced with '/' so no downstream name
 // (the '## <area>' section headings, the dedup key) carries a pipe.
 const seenProposedNames = new Set();
-const proposed = scout && Array.isArray(scout.subsystems)
+const proposed = Array.isArray(scout.subsystems)
   ? scout.subsystems
     .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
-    .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
+    .map((s) => ({ ...s, name: s.name.replace(/[\r\n]+/g, " ").replace(/\|/g, "/").replace(/^#+\s*/, "").trim() }))
+    .filter((s) => s.name !== "")
     .filter((s) => {
       const key = s.name.toLowerCase();
       if (seenProposedNames.has(key)) return false;
@@ -225,11 +226,11 @@ const exploreOpts = (s) => {
   return USE_GRAPHMIND ? base : { ...base, agentType: "Explore" };
 };
 const pickPrompt = (s) => (USE_GRAPHMIND ? graphmindExplorePrompt(s) : explorerPrompt(s));
-const exploreOuts = subsystems.length === 0
-  ? []
-  : subsystems.length > 1
-  ? await parallel(subsystems.map((s) => () => agent(pickPrompt(s), exploreOpts(s))))
-  : [await agent(pickPrompt(subsystems[0]), exploreOpts(subsystems[0]))];
+// The memory recall depends only on the subsystems, so it runs in the same batch.
+const recallTask = () => agent(graphmindRecallPrompt(), { label: "explore:memory", phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer });
+const batch = await parallel([...subsystems.map((s) => () => agent(pickPrompt(s), exploreOpts(s))), ...(USE_GRAPHMIND ? [recallTask] : [])]);
+const exploreOuts = batch.slice(0, subsystems.length);
+const recalled = USE_GRAPHMIND ? batch[subsystems.length] : null;
 
 const sections = [];
 for (let i = 0; i < exploreOuts.length; i++) {
@@ -247,7 +248,6 @@ if (!exploration) {
 
 let explorationBlock = exploration;
 if (USE_GRAPHMIND) {
-  const recalled = await agent(graphmindRecallPrompt(), { label: "explore:memory", phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer });
   const memo = recalled && typeof recalled.report === "string" ? recalled.report.trim() : "";
   if (memo && memo.toLowerCase() !== "none") explorationBlock += "\n\n## Recorded project knowledge (graphmind memory)\n" + memo;
 }
