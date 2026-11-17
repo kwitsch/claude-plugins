@@ -214,6 +214,20 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
+@test "design.workflow.js: args guards, SIZE-keyed designer model, role files by absolute path, inline prompts" {
+  F="$REFS/design.workflow.js"
+  [ -s "$F" ]
+  for p in 'export const meta = {' 'name: "build-task-design"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH", "REFS_DIR"], { SIZE: "", RESUME: false, USER_INPUT: "" })' 'RESUME=true requires USER_INPUT' 'REFS_DIR must be an absolute path' 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' 'let DESIGNER_MODEL = designerModel(SIZE);' 'model: DESIGNER_MODEL' 'designReview: "sonnet"' 'if (DESIGNER_MODEL !== "fable") throw e;' 'DESIGNER_MODEL = "opus";' 'function hasContaminatedKeypoints' 'if (d === null || hasContaminatedKeypoints(d))' 'never embedded as text/tags' '+ "/designer.md"' '+ "/design-reviewer.md"' 'Read your role definition at ${ROLE.designer} first and follow it exactly.' 'designReviewerPrompt = `${NO_NARRATION}\n\nRead your role definition at ${ROLE.reviewer} first and follow it exactly. You are read-only.' 'Read the exploration file at ${EXPLORE_PATH} before designing' 'per your role' 'Apply your full checklist (role definition)' 'status: "user_input_required"' 'Re-run this workflow with RESUME=true, the same DRAFT_PATH and EXPLORE_PATH, and the answers as USER_INPUT (recommended: JSON [{id, answer}]).' 'minorFindings: (review.findings || []).filter((f) => f.severity === "minor")'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  followed_by 'designerPrompt = (mode, extra) =>' '`${NO_NARRATION}' "$F"
+  for absent in 'agentType' 'difficulty' 'AGENTS' 'taskflow:' 'explorationBlock' 'phase("Spec")' 'phase("Explore")' 'agent definition'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+}
+
 @test "eslint.config.mjs ignores *.workflow.js (top-level await/return, not a standalone module)" {
   run rg_or_grep -F '*.workflow.js' "$ESLINT_CONFIG"
   [ "$status" -eq 0 ]
