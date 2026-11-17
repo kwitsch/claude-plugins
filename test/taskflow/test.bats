@@ -228,6 +228,51 @@ followed_by() { # <head> <next> <file>
   done
 }
 
+@test "spec.workflow.js: inline spec writer/reviewer, English, lean carry-forward, specReviewed" {
+  F="$REFS/spec.workflow.js"
+  [ -s "$F" ]
+  for p in 'export const meta = {' 'name: "build-task-spec"' 'function decodeArgs' 'decodeArgs(["DRAFT_PATH", "SPEC_PATH"], {})' 'specWriter: "sonnet"' 'specReview: "sonnet"' 'specReviewerPrompt = `${NO_NARRATION}' 'function reviewSpec' 'function writeSpec' 'specReviewed: specCheck != null' 'lean/YAGNI decisions forward' 'English' 'specPath: SPEC_PATH'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  followed_by 'specWriterPrompt = (revision) =>' '`${NO_NARRATION}' "$F"
+  for absent in 'agentType' 'difficulty' 'AGENTS' 'taskflow:' 'TASK' 'EXPLORE_PATH'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "build-task design-pipeline scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types, clean comments" {
+  run bash -c "ls '$REFS'/*.workflow.js | wc -l | tr -d '[:space:]'"
+  [ "$output" = "3" ]
+  for n in explore design spec; do
+    f="$REFS/$n.workflow.js"
+    [ -s "$f" ]
+    run rg_or_grep -F 'export const meta = {' "$f"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -E "name:[[:space:]]*[\"']build-task-$n[\"']" "$f"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";' "$f"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'function decodeArgs' "$f"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'args global is ' "$f"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -E "stage:[[:space:]]*[\"']args[\"']" "$f"
+    [ "$status" -eq 0 ]
+    for absent in 'agentType: AGENTS.' 'taskflow:' 'Date.now()' 'Math.random()' 'new Date()'; do
+      run rg_or_grep -F -- "$absent" "$f"
+      [ "$status" -ne 0 ]
+    done
+    run rg_or_grep -E '^import ' "$f"
+    [ "$status" -ne 0 ]
+    run rg_or_grep -cE '[äöüßÄÖÜ]' "$f"
+    [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
+    run bash -c "rg_or_grep -oE '//.*' '$f' | rg_or_grep -icE '\\b(und|oder|nicht|wird|werden|auch|sowie|sind|eine|einen|kein|keine|wenn|dass|immer|nie|schritt)\\b'"
+    [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
+  done
+}
+
 @test "eslint.config.mjs ignores *.workflow.js (top-level await/return, not a standalone module)" {
   run rg_or_grep -F '*.workflow.js' "$ESLINT_CONFIG"
   [ "$status" -eq 0 ]
