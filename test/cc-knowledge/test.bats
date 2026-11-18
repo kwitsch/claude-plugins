@@ -263,11 +263,12 @@ make_stub() {
   for tok in commands mcp plugins memory settings; do
     printf '%s\n' "$output" | rg_or_grep -q "$tok"
   done
+  sources="$REPO_ROOT/.claude/skills/update-cc-references/sources.json"
   for f in claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-mcp-managed-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run rg_or_grep -F "$f" "$MAINT"
+    run rg_or_grep -F "$f" "$sources"
     [ "$status" -eq 0 ]
   done
 }
@@ -1776,7 +1777,7 @@ JSON
 }
 
 @test "update-cc-references preserves the LSP not-loaded directive" {
-  run rg_or_grep -F 'project-root `.lsp.json` is not loaded' "$MAINT"
+  run rg_or_grep -F 'project-root `.lsp.json` is not loaded' "$REPO_ROOT/.claude/skills/update-cc-references/sources.json"
   [ "$status" -eq 0 ]
 }
 
