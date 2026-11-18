@@ -1,4 +1,4 @@
-import { AUTH_TOOL, BUILTIN_COMMANDS, CACHE_TTL, COMPACT_API_TIMEOUT_S, COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, COMPACT_TIMEOUT_MS, EFFORT_ORDER, ESTIMATE_SPEC, ESTIMATE_TOOL, EVERY_TURN_MODELS, GENERAL, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOLS, JEV_TOOL_PREFIX, MAX_CHOICE_OPTIONS, MAX_ERROR, MAX_PAUSE_MS, MAX_READS, MAX_STATS, PAUSE_MS, RELEVANCE, SAFE_MAKE, SKILL_BLOCKLIST_KEY, STEP_EFFORT_CUTS, SUMMARY_MODEL, SWITCH_AT, SYSTEM, TIMEOUT_MS, absolute, bash, bounds, cacheColor, cacheLabel, choice, clip, clipScript, compactInstructions, compactItems, dedupeSkills, effortQuestion, estimateEffort, haikuTranscript, inBandRange, inScratchpad, isAnswer, isEffort, isSafeScript, isSafeToOffer, mechanicalQuestion, mentionedPaths, minutesLeft, missingJevTools, modelFamily, nextActionQuestion, nextTtl, noul, parseEstimateInput, pickCandidate, quotedTerms, relevant, sameCall, score, singleActionQuestion, splitTurn, stepEffortQuestion, summarize, taskEndQuestion, toolCalls } from "./lib.mjs";
+import { AUTH_TOOL, BUILTIN_COMMANDS, CACHE_TTL, COMPACT_API_TIMEOUT_S, COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, COMPACT_TIMEOUT_MS, EFFORT_ORDER, EVERY_TURN_MODELS, GENERAL, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, JEV_API_TIMEOUT_S, JEV_REQUEST, JEV_TOOLS, JEV_TOOL_PREFIX, MAX_CHOICE_OPTIONS, MAX_ERROR, MAX_PAUSE_MS, MAX_READS, MAX_STATS, PAUSE_MS, RELEVANCE, SAFE_MAKE, SKILL_BLOCKLIST_KEY, STEP_EFFORT_CUTS, SUMMARY_MODEL, SWITCH_AT, SYSTEM, TIMEOUT_MS, absolute, bash, bounds, cacheColor, cacheLabel, choice, clip, clipScript, compactInstructions, compactItems, dedupeSkills, effortQuestion, estimateEffort, haikuTranscript, inBandRange, inScratchpad, isAnswer, isEffort, isSafeScript, isSafeToOffer, mechanicalQuestion, mentionedPaths, minutesLeft, missingJevTools, modelFamily, nextActionQuestion, nextTtl, noul, pickCandidate, quotedTerms, relevant, sameCall, score, singleActionQuestion, splitTurn, stepEffortQuestion, summarize, taskEndQuestion, toolCalls } from "./lib.mjs";
 const newScan = () => ({
 	steps: 0,
 	calls: new Set(),
@@ -62,23 +62,23 @@ async function askJev($, state, questions, slow = false) {
 	const entries = Object.entries(questions);
 	const call = (async () => {
 		const r = await $.tool.call({
-			tool: JEV_BATCH,
+			tool: JEV_REQUEST,
 			state: JSON.stringify(state),
 			questions: entries.map(([, q]) => q),
 			timeout: apiTimeoutS
 		});
 		if (r.deny !== undefined) throw new Error(asText(r.deny));
-		if (r.isError === true || typeof r.result !== "string") throw new Error(`batch: ${r.result === undefined ? "no result" : typeof r.result === "string" ? r.result : JSON.stringify(r.result)}`);
+		if (r.isError === true || typeof r.result !== "string") throw new Error(`request: ${r.result === undefined ? "no result" : typeof r.result === "string" ? r.result : JSON.stringify(r.result)}`);
 		let list;
 		try {
 			list = JSON.parse(r.result);
 		} catch {
-			throw new Error("batch: result is not JSON");
+			throw new Error("request: result is not JSON");
 		}
-		if (!Array.isArray(list) || list.length !== entries.length) throw new Error(`batch: expected ${entries.length} answers`);
+		if (!Array.isArray(list) || list.length !== entries.length) throw new Error(`request: expected ${entries.length} answers`);
 		return Object.fromEntries(entries.map(([id, q], i) => {
 			const answer = list[i];
-			if (!isAnswer(answer, q.type)) throw new Error(`batch: no valid ${q.type} answer for questions[${i}]`);
+			if (!isAnswer(answer, q.type)) throw new Error(`request: no valid ${q.type} answer for questions[${i}]`);
 			return [id, answer];
 		}));
 	})();
@@ -134,7 +134,6 @@ function dropTurnReads() {
 	haikuPath = undefined;
 }
 let jevState;
-let estimateRegistered = false;
 let bandStale = false;
 let cacheExpires = 0;
 let cacheTtl = "1h";
@@ -221,23 +220,17 @@ async function withJevRanking($, e) {
 }
 function jevMissing($) {
 	if (!jevTools && !turnRunning) readBetweenTurns = true;
-	return jevTools ??= (toolListing = $.tool.list()).then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]).then(async (missing) => {
-		if (jevState !== undefined) await jevApply($, missing);
+	return jevTools ??= (toolListing = $.tool.list()).then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]).then((missing) => {
+		if (jevState !== undefined) jevApply($, missing);
 		return missing;
 	});
 }
-async function jevApply($, missing) {
+function jevApply($, missing) {
 	const key = missing.join(", ");
-	const changed = key !== jevState;
-	if (!changed && !bandStale && (key || estimateRegistered)) return;
+	if (key === jevState && !bandStale) return;
 	jevState = key;
 	bandStale = false;
 	redraw($);
-	if (key) return;
-	try {
-		if (!estimateRegistered) await $.tool.register(ESTIMATE_SPEC);
-		estimateRegistered = true;
-	} catch {}
 }
 async function readTurn($, agentId) {
 	return turnOf(await $.session.messages(agentId ? { agentId } : {}));
@@ -618,13 +611,12 @@ export const register = (on, options) => {
 		forgetConversation();
 		resetCache($);
 		jevState = undefined;
-		estimateRegistered = false;
 		bandStale = false;
 		cacheTimer?.cancel();
 		cacheTimer = $.clock.every(CACHE_TICK_MS, () => void cacheTick($, autoCompactPercent).catch(() => undefined));
 		const result = await next(e);
 		dropTurnReads();
-		await jevApply($, await jevMissing($));
+		jevApply($, await jevMissing($));
 		readBetweenTurns = false;
 		toolListing = undefined;
 		return result;
@@ -651,17 +643,6 @@ export const register = (on, options) => {
 		return next(e);
 	});
 	on("tool.call", async function onToolCall($, e, next) {
-		if (e.tool === ESTIMATE_TOOL) {
-			const input = parseEstimateInput(e);
-			if (typeof input === "string") return { deny: `estimate_effort: ${input}` };
-			const r = await askJev($, { request: clip(input.prompt, 4e3) }, {
-				effort: effortQuestion,
-				mechanical: mechanicalQuestion
-			});
-			const effortAnswer = r.ok ? score(r.answers, "effort") : undefined;
-			const est = estimateEffort(effortAnswer, r.ok ? noul(r.answers, "mechanical") : undefined, input);
-			return { result: JSON.stringify(est) };
-		}
 		if ((await jevMissing($)).length) return next(e);
 		const result = await next(e);
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
@@ -912,14 +893,6 @@ export const register = (on, options) => {
 		return yield* next(stepRouted(r));
 	});
 	on("tool.check", async function onToolCheck($, e, next) {
-		if (e.tool === ESTIMATE_TOOL) {
-			const base = await next(e);
-			return settled(base) ? base : {
-				...base,
-				decision: "allow",
-				reason: "jevfort: estimate_effort is answered locally"
-			};
-		}
 		if ((await jevMissing($)).length) return next(e);
 		const base = await next(e);
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {

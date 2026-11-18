@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "Lets Jev take routine steps and pick each turn's effort for you (needs the jev-api plugin).",
   "author": {
     "name": "Kwitsch"
@@ -19,7 +19,7 @@
     "routing": {
       "type": "boolean",
       "title": "Effort routing",
-      "description": "Choose the effort of every turn by Jev's estimate and show the effort row above the prompt. Off: turns run at the session effort and the effort row is hidden (the estimate_effort tool and the cache countdown stay).",
+      "description": "Choose the effort of every turn by Jev's estimate and show the effort row above the prompt. Off: turns run at the session effort and the effort row is hidden (the cache countdown stays).",
       "default": true
     },
     "stepEffort": {
