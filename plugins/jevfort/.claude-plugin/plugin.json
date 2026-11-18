@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Lets TypeSafe Jev take routine steps and route effort (port of nim-f/jev-pilot; asks Jev through the jev-api plugin's tools).",
   "author": {
     "name": "Kwitsch"
@@ -21,6 +21,12 @@
       "title": "Effort routing",
       "description": "Choose the effort of every turn by Jev's estimate and show the effort row above the prompt. Off: turns run at the session effort and the effort row is hidden (the estimate_effort tool and the cache countdown stay).",
       "default": true
+    },
+    "stepEffort": {
+      "type": "boolean",
+      "title": "Effort per step",
+      "description": "With effort routing on, also re-estimate the effort at every later Opus/Sonnet step that goes to the model, judging only the steps since Jev's last effort answer in this turn; an uncertain estimate falls back to the turn's first estimate, or to your session effort when the turn has none. Haiku/Fable keep one effort per turn (an effort change would rewrite their prompt cache). Each such step may wait up to 4 seconds for Jev.",
+      "default": false
     },
     "takeSteps": {
       "type": "boolean",
