@@ -2601,8 +2601,8 @@ detect_fixture() {
   [[ "$output" == *"init-dev-environment"* ]]
 }
 
-@test "plugin.json version is 2.1.1 (patch, CC reference refresh)" {
+@test "plugin.json version is 2.1.2 (patch, CC reference refresh)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "2.1.1" ]
+  [ "$output" = "2.1.2" ]
 }
