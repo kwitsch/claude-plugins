@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-11-06.
+> (How Claude remembers your project), verified 2026-11-18.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -63,7 +63,7 @@ Files load in the order below (broadest to most specific); a later entry wins on
 
 - `claudeMdExcludes` skips files by path or glob (matched against absolute paths); configurable at **any** settings layer (user/project/local/managed); arrays merge across layers. Put it in `.claude/settings.local.json` to keep the exclusion local to your machine.
 - version >= 2.1.239: to exclude a `.claude/rules/` file reached through a symlink, a pattern matching **either** the file's path under `.claude/rules/` **or** its link target excludes it (before v2.1.239, only a pattern matching the link target worked).
-- `--add-dir` directories do NOT load their CLAUDE.md by default. Set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to load `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md`, `CLAUDE.local.md` from them (`CLAUDE.local.md` skipped if `local` is excluded from `--setting-sources`).
+- `--add-dir` directories do NOT load their CLAUDE.md by default. Set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to load `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md` except rules that set a `paths` field, `CLAUDE.local.md` from them (`CLAUDE.local.md` skipped if `local` is excluded from `--setting-sources`).
 - Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files and rules with `paths:` frontmatter are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory or a file matching the rule's patterns. An instruction missing after compaction was either given only in conversation (never written to a file), lives in a nested CLAUDE.md that hasn't reloaded yet, or is a path-scoped rule that hasn't matched a file since — put conversation-only instructions into a CLAUDE.md to make them persist.
 - Debug: run `/context all` and read the list (in fullscreen mode, bare `/context` collapses that list) under **Memory files** to confirm a CLAUDE.md/CLAUDE.local.md file actually loaded at launch — a file missing there is invisible to Claude that session. `/memory` lists memory-file _locations_ and opens them for editing; `/context all` is the load check.
 - A subdirectory CLAUDE.md does NOT appear under **Memory files** (loads on demand, not at launch). When it loads, a `Loaded` line with its path appears in the terminal. To test a new one: create it from your shell (not by asking Claude to write it), then ask Claude to read a file in that subdirectory.
@@ -297,7 +297,7 @@ paths:
 | `src/**/*.{ts,tsx}`    | Both extensions under `src/` (brace expansion)                                     |
 
 - Multiple patterns per rule are allowed. Brace-expansion budget: each brace group multiplies the expanded pattern count (`src/*.{ts,tsx}` → 2; `{a,b}/{c,d}/*.{ts,tsx}` → 8). A rule's whole `paths` list shares **one budget of 1,000 expanded patterns and 4 MiB**; brace-free patterns do not count against it. A pattern that would exceed the budget is used unexpanded, and its literal braces then match no files.
-- Glob treats `[` as the start of a bracket expression (`[abc]`). A pattern whose `[` cannot be read as a bracket expression (e.g. `photos [2024/**`) is invalid: it matches nothing while the rule's other patterns keep working. Escape a literal `[` — `photos \[2024/**`.
+- Glob treats `[` as the start of a bracket expression (`[abc]`). A pattern whose `[` cannot be read as a bracket expression (e.g. `photos [2024/**`) is invalid: it matches nothing while the rule's other patterns keep working. Escape a literal `[` inside single quotes: `'photos \[2024/**'`.
 - User-level rules: `~/.claude/rules/` — apply to every project on the machine; loaded **before** project rules (project rule appears later in context), but neither set overrides the other; conflicting rules → Claude may follow either.
 - Share across projects with symlinks (directories or individual files); circular symlinks are detected and handled gracefully.
 - A symlink under `.claude/rules/` whose **target** resolves outside the working directory is treated like an external import: the linked rules don't load until you approve external imports for the project, and once approved only the ones without a `paths` field load. Claude Code asks for that approval once per project, in a dialog at the start of an interactive session; the dialog lists the linked rule files alongside any external `@path` imports. To load shared rules with no approval step, keep them in `~/.claude/rules/` instead (applies to every project on the machine).

@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-10-09 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-11-18 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is now documented (code.claude.com/docs/en/hooks §MCP tool
      hook fields; code.claude.com/docs/en/mcp §Plugin-provided MCP servers) — preserve
      it on any refresh regardless; never regenerate this file wholesale. -->
@@ -128,6 +128,10 @@ emit exit code 2.
   that sets a field (then the whole output is a parse failure). Plain text is added as
   context only on `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`, and
   `PostModelSwitch` (debug log only elsewhere); text that failed to parse is not added.
+- Oversized result: if the server's answer is too large to read (message too large, or
+  result returned without its text), the hook gives no verdict. On `PreToolUse` Claude
+  Code refuses the tool call; on other events (`UserPromptSubmit`, `PostToolUse`, `Stop`)
+  the error is non-blocking. Return less data, or narrow the hook's `tool`/`input`.
 - Soft-block only: on block-capable events it can return `permissionDecision:"deny"`
   / `decision:"block"`, but if the server is down it **fails open** (no block).
 - `Elicitation`/`ElicitationResult`: output is read like exit-0 stdout, so return
