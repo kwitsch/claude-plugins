@@ -6,7 +6,7 @@
 //   gate <scratch> <name>         revert unsourced-version hunks, label line-changing hunks for the validator
 //   finish <scratch> <name> [--keep h1,h2]  authoritative, fail-closed: revert every line-changing hunk not
 //                                 kept, then stamp the verified date or restore the file from HEAD
-//   release <scratch>             guarded patch bump, description date suffix, rolling version-pin test
+//   release <scratch>             guarded patch bump, description date suffix
 // Writes: <scratch>/{plan.json,workflow.js,docs/,diffs/}, the target reference files,
 // plugins/cc-knowledge/.claude-plugin/plugin.json and test/cc-knowledge/test.bats.
 // Fail-closed: an unverified line change never survives finish.
@@ -289,21 +289,7 @@ function cmdFinish(args) {
 }
 
 const PLUGIN_JSON = "plugins/cc-knowledge/.claude-plugin/plugin.json";
-const PIN_TEST = "test/cc-knowledge/test.bats";
 const SUFFIX_RE = / \(CC docs read: \d{4}-\d{2}-\d{2}\)$/;
-
-// Rolling version-pin test: each literal must occur exactly once, else leave the file untouched.
-function updatePin(file, from, to) {
-  if (!existsSync(file)) return false;
-  const text = readFileSync(file, "utf8");
-  const pairs = [
-    [`plugin.json version is ${from}`, `plugin.json version is ${to}`],
-    [`[ "$output" = "${from}" ]`, `[ "$output" = "${to}" ]`],
-  ];
-  if (pairs.some(([a]) => text.split(a).length !== 2)) return false;
-  writeFileSync(file, pairs.reduce((s, [a, b]) => s.replace(a, () => b), text));
-  return true;
-}
 
 function cmdRelease(args) {
   const plan = loadPlan(args[0]);
@@ -338,8 +324,7 @@ function cmdRelease(args) {
   obj.description = SUFFIX_RE.test(obj.description) ? obj.description.replace(SUFFIX_RE, () => suffix) : obj.description + suffix;
   const next = JSON.stringify(obj, null, 2) + "\n";
   if (next !== raw) writeFileSync(pluginPath, next);
-  const pinUpdated = bumped ? updatePin(join(root, PIN_TEST), current, obj.version) : false;
-  return { changed: true, files, previousVersion: current, version: obj.version, bumped, date: plan.date, pinUpdated };
+  return { changed: true, files, previousVersion: current, version: obj.version, bumped, date: plan.date };
 }
 
 const COMMANDS = { plan: cmdPlan, gate: cmdGate, finish: cmdFinish, release: cmdRelease };

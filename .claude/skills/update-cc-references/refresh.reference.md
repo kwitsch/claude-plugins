@@ -35,7 +35,7 @@
 | `plan` | `{ok, scratch, date, targets:[name], workflowScript}` | `<scratch>/docs/*.md`, `<scratch>/plan.json`, `<scratch>/workflow.js` |
 | `gate` | `{name, additive, changing:[hN], diffPath, autoReverted:[{versions, header}]}` | reverts unsourced-version hunks in the target file; `<scratch>/diffs/<name>.diff` (each `@@` line ends with ` hN`, `diffPath` is `null` when there are no line-changing hunks); `<scratch>/diffs/<name>.state.json` (sha256 and ids snapshot) |
 | `finish` | `{name, status:"updated"\|"unchanged", kept:[hN], reverted:[hN], autoReverted:[{versions, header}], stale:boolean}` | reverts every line-changing hunk not kept; stamps the `verified` date when changes remain, otherwise restores the file from `HEAD` (`status:"unchanged"`) |
-| `release` | `{changed:false}` or `{changed:true, files, previousVersion, version, bumped, date, pinUpdated}` | `plugins/cc-knowledge/.claude-plugin/plugin.json` (version bumped once per branch against `origin/main`, description suffix replaced in place); `test/cc-knowledge/test.bats` (rolling version-pin literals, only when bumped) |
+| `release` | `{changed:false}` or `{changed:true, files, previousVersion, version, bumped, date}` | `plugins/cc-knowledge/.claude-plugin/plugin.json` (version bumped once per branch against `origin/main`, description suffix replaced in place) |
 
 `stale: true` in `finish` means the file changed after its `gate` run or no snapshot exists; all its line-changing hunks are reverted.
 

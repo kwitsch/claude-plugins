@@ -68,10 +68,8 @@ is limited to what each step names. Reference files stay in English regardless o
    `changed: false`: report "references already current" with the changelog and STOP (no commit, no
    PR). Otherwise the script has bumped the patch version in
    `plugins/cc-knowledge/.claude-plugin/plugin.json` (once per branch, compared with `origin/main`),
-   replaced the `description` date suffix ` (CC docs read: YYYY-MM-DD)` in place, and updated the rolling
-   version-pin test in `test/cc-knowledge/test.bats`. After a bump, `pinUpdated: false` means the pin
-   literals did not match exactly once: report it, because CI's manifest test then fails until the pin
-   is fixed by hand. Never edit `marketplace.json`, never create a tag.
+   replaced the `description` date suffix ` (CC docs read: YYYY-MM-DD)` in place. Never edit
+   `marketplace.json`, never create a tag.
 
 8. **Commit, push, open the PR.** Replace `<target>` with the target name and `<changelog>` with the
    step 6 changelog. No `Co-Authored-By:` trailer, no "Generated with" footer.
