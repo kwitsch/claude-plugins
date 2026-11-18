@@ -84,7 +84,7 @@ const A = decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH", "SKILL_DIR"], { SIZE
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
 const { TASK, EXPLORE_PATH, DRAFT_PATH, SKILL_DIR, SIZE, USER_INPUT: RAW_USER_INPUT } = A;
 const RESUME = A.RESUME === true || A.RESUME === "true"; // string args: "false" is truthy
-const USER_INPUT = typeof RAW_USER_INPUT === "string" ? RAW_USER_INPUT : JSON.stringify(RAW_USER_INPUT);
+const USER_INPUT = typeof RAW_USER_INPUT === "string" ? RAW_USER_INPUT : RAW_USER_INPUT == null ? "" : JSON.stringify(RAW_USER_INPUT);
 for (const [k, v] of [["EXPLORE_PATH", EXPLORE_PATH], ["DRAFT_PATH", DRAFT_PATH]]) {
   if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
 }

@@ -79,7 +79,8 @@ function decodeArgs(required, defaults) {
 }
 const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "IMPLEMENT_PATH", "REVIEW_PATH", "PR_BODY_PATH", "BRANCH_NAME", "SKILL_DIR"], { BASE_BRANCH: "main", PLUGIN_ROOT: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, SKILL_DIR, BASE_BRANCH } = A;
+const { SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, SKILL_DIR } = A;
+const BASE_BRANCH = A.BASE_BRANCH || "main"; // empty/null counts as missing
 for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH], ["IMPLEMENT_PATH", IMPLEMENT_PATH], ["REVIEW_PATH", REVIEW_PATH], ["PR_BODY_PATH", PR_BODY_PATH], ["SKILL_DIR", SKILL_DIR]]) {
   if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
 }
@@ -257,13 +258,14 @@ if (!prText) {
           + "definition. Structured output only.",
         { label: "ci-monitor:" + round, phase: "Ship", schema: CI_RESULT, model: MODELS.ciMonitor },
       );
-      if (!ci) break;
-      ship.ci.status = ci.status;
-      if (ci.failedJobs && ci.failedJobs.length) ship.ci.failedJobs = ci.failedJobs;
-      if (ci.status === "passed" || ci.status === "none") {
-        delete ship.ci.failedJobs;
+      if (!ci) {
+        delete ship.ci.failedJobs; // superseded by a fix pushed after the last watch
         break;
       }
+      ship.ci.status = ci.status;
+      if (ci.status === "failed" && ci.failedJobs && ci.failedJobs.length) ship.ci.failedJobs = ci.failedJobs;
+      else delete ship.ci.failedJobs;
+      if (ci.status === "passed" || ci.status === "none") break;
       if (ci.status === "running") continue;
       // failed:
       if (ship.ci.fixRounds >= MAX_CI_FIX_ROUNDS) break;
@@ -290,6 +292,9 @@ if (!prText) {
         break;
       }
       if (fix.status === "rerun") rerunTried = true;
+      // The fix/rerun has not been watched yet: never report the superseded red run as current.
+      ship.ci.status = "running";
+      delete ship.ci.failedJobs;
       // 'done' (commit pushed) or 'rerun' → keep watching
     }
     if (ship.ci.status === "failed") ship.status = "ci_failed";

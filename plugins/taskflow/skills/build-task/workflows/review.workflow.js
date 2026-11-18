@@ -81,7 +81,8 @@ function decodeArgs(required, defaults) {
 }
 const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "REVIEW_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", LEVEL: "high" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, REVIEW_PATH, BRANCH_NAME, BASE_BRANCH, LEVEL } = A;
+const { SPEC_PATH, PLAN_PATH, REVIEW_PATH, BRANCH_NAME, LEVEL } = A;
+const BASE_BRANCH = A.BASE_BRANCH || "main"; // empty/null counts as missing
 for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH], ["REVIEW_PATH", REVIEW_PATH]]) {
   if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
 }
@@ -328,7 +329,7 @@ const ponyOpts = {
   schema: PONYTAIL_REVIEW_SCHEMA,
   model: MODELS.ponytailReviewer,
 };
-const ponytailPromise = agent(ponytailReviewPrompt, ponyOpts);
+const ponytailPromise = Promise.resolve(agent(ponytailReviewPrompt, ponyOpts)).catch(() => null); // a throw degrades to the null-retry path
 
 const FINDER_PROMPT = (f) =>
   "## Review finder — assigned lens: "

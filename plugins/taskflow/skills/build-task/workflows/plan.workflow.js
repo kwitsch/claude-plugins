@@ -217,18 +217,21 @@ async function makePlan() {
   if (plan === null || plan.status === "blocked") return { plan: null, reason: plan ? plan.detail : "planner returned null twice" };
 
   let check = await agent(planCheckerPrompt, { label: "plan-check", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
-  if (check && !check.approved) {
+  if (check === null) return { plan: null, reason: "plan-check returned null" };
+  if (!check.approved) {
     const blocking = check.findings.filter((f) => f.severity === "blocking");
     if (blocking.length) {
       log("Plan check: " + blocking.length + " blocking finding(s) — one revision round");
       plan = await callPlanner(plannerPrompt(JSON.stringify(blocking)), "plan:revise");
       if (plan === null || plan.status === "blocked") return { plan: null, reason: "planner failed during revision" };
       check = await agent(planCheckerPrompt, { label: "plan-recheck", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
-      if (check && !check.approved && check.findings.some((f) => f.severity === "blocking")) {
+      if (check === null) return { plan: null, reason: "plan-recheck returned null" };
+      if (!check.approved && check.findings.some((f) => f.severity === "blocking")) {
         return { plan: null, reason: "plan still blocking after one revision: " + JSON.stringify(check.findings) };
       }
     }
   }
+  if (!Array.isArray(plan.tasks) || plan.tasks.length === 0) return { plan: null, reason: "planner returned no tasks" };
   return { plan };
 }
 
