@@ -58,11 +58,11 @@ EOF
   "description": "Fixture plugin. (CC docs read: 2026-01-01)"
 }
 EOF
+  # A plain comment, not @test: bats rewrites any .bats file that contains an @test line once a test writes it.
   cat > "$PIN" <<'EOF'
-@test "plugin.json version is 1.0.0 (patch, CC reference refresh)" {
+# plugin.json version is 1.0.0 (patch, CC reference refresh)
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$output" = "1.0.0" ]
-}
 EOF
   git -C "$REPO" init -q
   git -C "$REPO" add -A
@@ -218,4 +218,58 @@ same_as_head() { git -C "$REPO" diff --quiet HEAD -- "$REF"; }
   [ "$status" -eq 1 ]
   run --separate-stderr refresh finish "$BATS_TEST_TMPDIR/no-scratch" claude-code-memory-reference
   [ "$status" -eq 1 ]
+}
+
+@test "release on a clean reference tree reports changed:false and writes nothing" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  run --separate-stderr refresh release "$SCRATCH"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .changed)" = "false" ]
+  git -C "$REPO" diff --quiet HEAD
+}
+
+@test "release bumps the patch once per branch, stamps the date, updates the pin" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  d="$(plan_date)"
+  printf '| delta | added row |\n' >> "$REF"
+  run --separate-stderr refresh release "$SCRATCH"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .changed)" = "true" ]
+  [ "$(printf '%s' "$output" | jq -r .bumped)" = "true" ]
+  [ "$(printf '%s' "$output" | jq -r .previousVersion)" = "1.0.0" ]
+  [ "$(printf '%s' "$output" | jq -r .version)" = "1.0.1" ]
+  [ "$(printf '%s' "$output" | jq -r .pinUpdated)" = "true" ]
+  [ "$(jq -r .version "$PJ")" = "1.0.1" ]
+  [ "$(jq -r .description "$PJ")" = "Fixture plugin. (CC docs read: $d)" ]
+  grep -qF 'plugin.json version is 1.0.1' "$PIN"
+  grep -qF '[ "$output" = "1.0.1" ]' "$PIN"
+
+  git -C "$REPO" add -A
+  git -C "$REPO" -c user.name=t -c user.email=t@t commit -qm bump
+  printf '| epsilon | another row |\n' >> "$REF"
+  run --separate-stderr refresh release "$SCRATCH"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .bumped)" = "false" ]
+  [ "$(printf '%s' "$output" | jq -r .version)" = "1.0.1" ]
+  [ "$(jq -r .version "$PJ")" = "1.0.1" ]
+  [ "$(jq -r .description "$PJ")" = "Fixture plugin. (CC docs read: $d)" ]
+}
+
+@test "release appends the date suffix when the description has none" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  printf '{\n  "name": "cc-knowledge",\n  "version": "1.0.0",\n  "description": "Fixture plugin."\n}\n' > "$PJ"
+  printf '| delta | added row |\n' >> "$REF"
+  run --separate-stderr refresh release "$SCRATCH"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .description "$PJ")" = "Fixture plugin. (CC docs read: $(plan_date))" ]
+}
+
+@test "release exits 1 on a malformed version and writes nothing" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  printf '{\n  "name": "cc-knowledge",\n  "version": "1.0",\n  "description": "Fixture plugin."\n}\n' > "$PJ"
+  cp "$PJ" "$BATS_TEST_TMPDIR/pj.before"
+  printf '| delta | added row |\n' >> "$REF"
+  run --separate-stderr refresh release "$SCRATCH"
+  [ "$status" -eq 1 ]
+  cmp -s "$PJ" "$BATS_TEST_TMPDIR/pj.before"
 }

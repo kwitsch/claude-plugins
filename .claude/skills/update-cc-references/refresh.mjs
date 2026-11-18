@@ -282,7 +282,60 @@ function cmdFinish(args) {
   };
 }
 
-const COMMANDS = { plan: cmdPlan, gate: cmdGate, finish: cmdFinish };
+const CC_REFERENCE_DIR = "plugins/cc-knowledge/skills/cc-reference/";
+const PLUGIN_JSON = "plugins/cc-knowledge/.claude-plugin/plugin.json";
+const PIN_TEST = "test/cc-knowledge/test.bats";
+const SUFFIX_RE = / \(CC docs read: \d{4}-\d{2}-\d{2}\)$/;
+
+// Rolling version-pin test: each literal must occur exactly once, else leave the file untouched.
+function updatePin(file, from, to) {
+  if (!existsSync(file)) return false;
+  const text = readFileSync(file, "utf8");
+  const pairs = [
+    [`plugin.json version is ${from}`, `plugin.json version is ${to}`],
+    [`[ "$output" = "${from}" ]`, `[ "$output" = "${to}" ]`],
+  ];
+  if (pairs.some(([a]) => text.split(a).length !== 2)) return false;
+  writeFileSync(file, pairs.reduce((s, [a, b]) => s.replace(a, () => b), text));
+  return true;
+}
+
+function cmdRelease(args) {
+  const plan = loadPlan(args[0]);
+  const root = plan.repoRoot;
+  const porcelain = git(["status", "--porcelain", "--", CC_REFERENCE_DIR], root);
+  const files = porcelain.split("\n").filter(Boolean).map((l) => l.slice(3));
+  if (!files.length) return { changed: false };
+
+  const pluginPath = join(root, PLUGIN_JSON);
+  const raw = readFileSync(pluginPath, "utf8");
+  const obj = JSON.parse(raw);
+  const current = obj.version;
+  if (typeof current !== "string" || !/^\d+\.\d+\.\d+$/.test(current)) fail(1, `malformed version in ${PLUGIN_JSON}: ${current}`);
+  const shown = run("git", ["show", `origin/main:${PLUGIN_JSON}`], { cwd: root });
+  let base = null;
+  if (shown.status === 0) {
+    try {
+      base = JSON.parse(shown.stdout).version ?? null;
+    } catch {
+      base = null;
+    }
+  }
+  // Bump once per unreleased branch: a version already ahead of origin/main stays.
+  const bumped = base === null || current === base;
+  if (bumped) {
+    const [a, b, c] = current.split(".").map(Number);
+    obj.version = `${a}.${b}.${c + 1}`;
+  }
+  const suffix = ` (CC docs read: ${plan.date})`;
+  obj.description = SUFFIX_RE.test(obj.description) ? obj.description.replace(SUFFIX_RE, () => suffix) : obj.description + suffix;
+  const next = JSON.stringify(obj, null, 2) + "\n";
+  if (next !== raw) writeFileSync(pluginPath, next);
+  const pinUpdated = bumped ? updatePin(join(root, PIN_TEST), current, obj.version) : false;
+  return { changed: true, files, previousVersion: current, version: obj.version, bumped, date: plan.date, pinUpdated };
+}
+
+const COMMANDS = { plan: cmdPlan, gate: cmdGate, finish: cmdFinish, release: cmdRelease };
 
 function main() {
   const [cmd, ...args] = process.argv.slice(2);
