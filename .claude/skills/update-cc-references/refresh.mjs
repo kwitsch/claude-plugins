@@ -178,10 +178,19 @@ function hasVersion(text, v) {
   return new RegExp(`(?<![\\d.])v?${v.replace(/\./g, "\\.")}(?![\\d]|\\.\\d)`).test(text);
 }
 
+// Fetched docs are static after `plan`; read each target's docs once per process (diffs stay fresh).
+const docsCache = new Map();
+function readDocs(t) {
+  if (!docsCache.has(t.file)) {
+    docsCache.set(t.file, t.docs.map((d) => (existsSync(d.path) ? readFileSync(d.path, "utf8") : "")).join("\n"));
+  }
+  return docsCache.get(t.file);
+}
+
 // Date hunks dropped; unsourced = adds an x.y.z found neither in its own removed lines nor in the docs;
 // changing = other hunks removing >= 1 line (ids h1..hN in diff order); additive = the rest (count).
 function analyze(plan, t) {
-  const docsText = t.docs.map((d) => (existsSync(d.path) ? readFileSync(d.path, "utf8") : "")).join("\n");
+  const docsText = readDocs(t);
   const { header, hunks } = diffFile(plan, t);
   const unsourced = [];
   const changing = [];
