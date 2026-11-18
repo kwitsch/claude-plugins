@@ -512,7 +512,7 @@ export const register = (on, options) => {
 				})),
 				Button({
 					key: "auto",
-					label: `Jev auto: ${autoOff ? "off" : "on"}`,
+					label: `Jevfort ${autoOff ? "✖️" : "✔️"}`,
 					onPress: () => {
 						autoOff = !autoOff;
 						try {
@@ -783,7 +783,7 @@ export const register = (on, options) => {
 		}
 		const questions = {};
 		let candidates = [];
-		if (takeSteps && !ctx.command && turn.taken < MAX_TAKES_PER_TURN && (!takeOnlyForBypass || bypass && e.index === 0 && !e.agentId)) {
+		if (takeSteps && !autoOff && !ctx.command && turn.taken < MAX_TAKES_PER_TURN && (!takeOnlyForBypass || bypass && e.index === 0 && !e.agentId)) {
 			const build = buildCandidates($, ctx.request, ctx.steps, calls, e.index, turn.cache);
 			build.catch(() => undefined);
 			const timer = deadline($, TIMEOUT_MS);
@@ -872,7 +872,7 @@ export const register = (on, options) => {
 		const answer = choice(r.answers, "next_action");
 		const singleAction = noul(r.answers, "single_action") ?? 0;
 		const picked = pickCandidate(answer, candidates, takeThreshold);
-		const pick = takeOnlyForBypass && (singleAction < SINGLE_ACTION || picked?.tool !== "Read" && picked?.tool !== "Bash") ? undefined : picked;
+		const pick = autoOff ? undefined : takeOnlyForBypass && (singleAction < SINGLE_ACTION || picked?.tool !== "Read" && picked?.tool !== "Bash") ? undefined : picked;
 		if (pick) {
 			turn.taken += 1;
 			const id = `toolu_jev_${crypto.randomUUID().replace(/-/g, "")}`;
