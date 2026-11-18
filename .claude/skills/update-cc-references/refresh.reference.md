@@ -4,38 +4,38 @@
 
 ## Parameters
 
-| # | Name | Format | Required | Notes |
-| --- | --- | --- | --- | --- |
-| 1 | subcommand | `plan` \| `gate` \| `finish` \| `release` | yes | anything else exits 1 |
-| 2 | target (`plan`) | `skills agents hooks commands mcp plugins memory settings all` | no | empty means `all`; other values exit 1 |
-| 3 | scratch (`plan`) | directory | no | default `$CLAUDE_JOB_DIR/tmp/docs` when set, else a new `update-cc-references-*` directory under the system temp dir |
-| 2 | scratch (`gate`, `finish`, `release`) | directory printed by `plan` | yes | must contain `plan.json`, else exit 1 |
-| 3 | name (`gate`, `finish`) | target name, the reference file basename without `.md` | yes | must be a `plan.json` target, else exit 1 |
-| 4 | `--keep h1,h3` (`finish`) | comma list of `hN` ids | no | ids not in the latest `gate` snapshot are ignored; without a matching snapshot nothing is kept |
+| #   | Name                                  | Format                                                         | Required | Notes                                                                                                                |
+| --- | ------------------------------------- | -------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
+| 1   | subcommand                            | `plan` \| `gate` \| `finish` \| `release`                      | yes      | anything else exits 1                                                                                                |
+| 2   | target (`plan`)                       | `skills agents hooks commands mcp plugins memory settings all` | no       | empty means `all`; other values exit 1                                                                               |
+| 3   | scratch (`plan`)                      | directory                                                      | no       | default `$CLAUDE_JOB_DIR/tmp/docs` when set, else a new `update-cc-references-*` directory under the system temp dir |
+| 2   | scratch (`gate`, `finish`, `release`) | directory printed by `plan`                                    | yes      | must contain `plan.json`, else exit 1                                                                                |
+| 3   | name (`gate`, `finish`)               | target name, the reference file basename without `.md`         | yes      | must be a `plan.json` target, else exit 1                                                                            |
+| 4   | `--keep h1,h3` (`finish`)             | comma list of `hN` ids                                         | no       | ids not in the latest `gate` snapshot are ignored; without a matching snapshot nothing is kept                       |
 
 ## Environment
 
-| Var | Purpose | Required |
-| --- | --- | --- |
-| `CLAUDE_JOB_DIR` | default scratch root for `plan` (background job) | no |
+| Var              | Purpose                                          | Required |
+| ---------------- | ------------------------------------------------ | -------- |
+| `CLAUDE_JOB_DIR` | default scratch root for `plan` (background job) | no       |
 
 ## Exit codes
 
-| Code | Meaning | Notes |
-| --- | --- | --- |
-| 0 | ok | |
-| 1 | usage / invalid input | bad subcommand or target, unknown name, missing `plan.json`, malformed plugin version |
-| 2 | fetch failure | stdout `{"ok":false,"error":"doc fetch failed","failed":[urls]}`; fix with an `altUrls` entry in `sources.json` |
-| 3 | git failure | `git diff`, `git checkout` or `git apply -R` failed; for `gate`/`finish`, the target file is restored to its pre-revert content |
+| Code | Meaning               | Notes                                                                                                                           |
+| ---- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | ok                    |                                                                                                                                 |
+| 1    | usage / invalid input | bad subcommand or target, unknown name, missing `plan.json`, malformed plugin version                                           |
+| 2    | fetch failure         | stdout `{"ok":false,"error":"doc fetch failed","failed":[urls]}`; fix with an `altUrls` entry in `sources.json`                 |
+| 3    | git failure           | `git diff`, `git checkout` or `git apply -R` failed; for `gate`/`finish`, the target file is restored to its pre-revert content |
 
 ## Outputs
 
-| Subcommand | stdout | Writes |
-| --- | --- | --- |
-| `plan` | `{ok, scratch, date, targets:[name], workflowScript}` | `<scratch>/docs/*.md`, `<scratch>/plan.json`, `<scratch>/workflow.js` |
-| `gate` | `{name, additive, changing:[hN], diffPath, autoReverted:[{versions, header}]}` | reverts unsourced-version hunks in the target file; `<scratch>/diffs/<name>.diff` (each `@@` line ends with ` hN`, `diffPath` is `null` when there are no line-changing hunks); `<scratch>/diffs/<name>.state.json` (sha256 and ids snapshot) |
-| `finish` | `{name, status:"updated"\|"unchanged", kept:[hN], reverted:[hN], autoReverted:[{versions, header}], stale:boolean, stamped:boolean\|null}` | reverts every line-changing hunk not kept; stamps the `verified` date when changes remain, otherwise restores the file from `HEAD` (`status:"unchanged"`) |
-| `release` | `{changed:false}` or `{changed:true, files, previousVersion, version, bumped, date}` | `plugins/cc-knowledge/.claude-plugin/plugin.json` (version bumped once per branch against `origin/main`: a version ahead of it stays, otherwise `origin/main` patch + 1, description suffix replaced in place) |
+| Subcommand | stdout                                                                                                                                     | Writes                                                                                                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plan`     | `{ok, scratch, date, targets:[name], workflowScript}`                                                                                      | `<scratch>/docs/*.md`, `<scratch>/plan.json`, `<scratch>/workflow.js`                                                                                                                                                                         |
+| `gate`     | `{name, additive, changing:[hN], diffPath, autoReverted:[{versions, header}]}`                                                             | reverts unsourced-version hunks in the target file; `<scratch>/diffs/<name>.diff` (each `@@` line ends with ` hN`, `diffPath` is `null` when there are no line-changing hunks); `<scratch>/diffs/<name>.state.json` (sha256 and ids snapshot) |
+| `finish`   | `{name, status:"updated"\|"unchanged", kept:[hN], reverted:[hN], autoReverted:[{versions, header}], stale:boolean, stamped:boolean\|null}` | reverts every line-changing hunk not kept; stamps the `verified` date when changes remain, otherwise restores the file from `HEAD` (`status:"unchanged"`)                                                                                     |
+| `release`  | `{changed:false}` or `{changed:true, files, previousVersion, version, bumped, date}`                                                       | `plugins/cc-knowledge/.claude-plugin/plugin.json` (version bumped once per branch against `origin/main`: a version ahead of it stays, otherwise `origin/main` patch + 1, description suffix replaced in place)                                |
 
 `finish` writes `<scratch>/diffs/<name>.finished.json`; a repeat run on the file it left behind returns the recorded result unchanged. `plan` clears `<scratch>/diffs/`.
 
