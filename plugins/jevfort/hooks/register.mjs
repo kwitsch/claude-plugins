@@ -1,4 +1,4 @@
-import { AUTH_TOOL, BUILTIN_COMMANDS, CACHE_TTL, COMPACT_API_TIMEOUT_S, COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, COMPACT_TIMEOUT_MS, EFFORT_ORDER, ESTIMATE_SPEC, ESTIMATE_TOOL, EVERY_TURN_MODELS, GENERAL, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOLS, JEV_TOOL_PREFIX, MAX_CHOICE_OPTIONS, MAX_ERROR, MAX_PAUSE_MS, MAX_READS, MAX_STATS, PAUSE_MS, RELEVANCE, SAFE_MAKE, SKILL_BLOCKLIST_KEY, SUMMARY_MODEL, SWITCH_AT, SYSTEM, TIMEOUT_MS, absolute, bash, bounds, cacheColor, cacheLabel, choice, clip, clipScript, compactInstructions, compactItems, dedupeSkills, effortQuestion, estimateEffort, haikuTranscript, inBandRange, inScratchpad, isAnswer, isEffort, isSafeScript, isSafeToOffer, mechanicalQuestion, mentionedPaths, minutesLeft, missingJevTools, modelFamily, nextActionQuestion, nextTtl, noul, parseEstimateInput, pickCandidate, quotedTerms, relevant, sameCall, score, singleActionQuestion, splitTurn, stepEffortQuestion, summarize, taskEndQuestion, toolCalls } from "./lib.mjs";
+import { AUTH_TOOL, BUILTIN_COMMANDS, CACHE_TTL, COMPACT_API_TIMEOUT_S, COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, COMPACT_TIMEOUT_MS, EFFORT_ORDER, ESTIMATE_SPEC, ESTIMATE_TOOL, EVERY_TURN_MODELS, GENERAL, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOLS, JEV_TOOL_PREFIX, MAX_CHOICE_OPTIONS, MAX_ERROR, MAX_PAUSE_MS, MAX_READS, MAX_STATS, PAUSE_MS, RELEVANCE, SAFE_MAKE, SKILL_BLOCKLIST_KEY, STEP_EFFORT_CUTS, SUMMARY_MODEL, SWITCH_AT, SYSTEM, TIMEOUT_MS, absolute, bash, bounds, cacheColor, cacheLabel, choice, clip, clipScript, compactInstructions, compactItems, dedupeSkills, effortQuestion, estimateEffort, haikuTranscript, inBandRange, inScratchpad, isAnswer, isEffort, isSafeScript, isSafeToOffer, mechanicalQuestion, mentionedPaths, minutesLeft, missingJevTools, modelFamily, nextActionQuestion, nextTtl, noul, parseEstimateInput, pickCandidate, quotedTerms, relevant, sameCall, score, singleActionQuestion, splitTurn, stepEffortQuestion, summarize, taskEndQuestion, toolCalls } from "./lib.mjs";
 const newScan = () => ({
 	steps: 0,
 	calls: new Set(),
@@ -720,7 +720,7 @@ export const register = (on, options) => {
 			if (routing && e.index === 0 && !autoOff) hold();
 			return yield* next(routed(e));
 		}
-		const stepFamily = routing && stepEffort && e.index > 0 && !autoOff ? modelFamily(e.model) : undefined;
+		const stepFamily = routing && stepEffort && e.index > 0 && !autoOff && !turn.stepOff ? modelFamily(e.model) : undefined;
 		const stepFallback = turn.initial ?? (isEffort(e.effort) ? e.effort : undefined);
 		const stepModel = stepFamily && stepFallback && EVERY_TURN_MODELS.includes(stepFamily) ? {
 			family: stepFamily,
@@ -731,18 +731,20 @@ export const register = (on, options) => {
 			if (!stepModel || !r) return routed(e);
 			const family = stepModel.family;
 			const fallback = stepModel.fallback;
-			if (r.ok) {
-				turn.seen = ctx.steps.length;
-				turn.seenKey = JSON.stringify(ctx.steps.at(-1));
+			if (!r.ok) {
+				turn.stepOff = true;
+				applyEstimate(isEffort(e.effort) ? e.effort : fallback, `step ${e.index} · jev unavailable (${r.error}) · scoring off for this turn`);
+				return routed(e);
 			}
-			const answer = r.ok ? score(r.answers, "step_effort") : undefined;
+			turn.seen = ctx.steps.length;
+			turn.seenKey = JSON.stringify(ctx.steps.at(-1));
+			const answer = score(r.answers, "step_effort");
 			const est = estimateEffort(answer, undefined, {
 				model: family,
 				defaultEffort: fallback,
 				...effortRange
-			});
-			const source = r.ok ? `${est.source}${answer ? ` (score ${answer.score.toFixed(2)})` : ""}` : `jev unavailable (${r.error})`;
-			applyEstimate(est.effort, `step ${e.index} · ${source}`);
+			}, STEP_EFFORT_CUTS);
+			applyEstimate(est.effort, `step ${e.index} · ${est.source}${answer ? ` (score ${answer.score.toFixed(2)})` : ""}`);
 			return routed(e);
 		};
 		const calls = toolCalls(ctx.steps);
@@ -849,7 +851,10 @@ export const register = (on, options) => {
 		const stepEstimate = stepEffort && estimate && EVERY_TURN_MODELS.includes(estimate.model) ? estimate : undefined;
 		if (!r.ok) {
 			if (estimate) debugEffort($, e, `jev unavailable (${r.error})`, undefined);
-			if (stepEstimate) turn.initial = stepEstimate.defaultEffort;
+			if (stepEstimate) {
+				turn.initial = stepEstimate.defaultEffort;
+				turn.stepOff = true;
+			}
 			return yield* next(stepRouted(r));
 		}
 		if (estimate) {
