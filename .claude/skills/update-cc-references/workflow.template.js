@@ -43,6 +43,9 @@ const VerdictBatchSchema = {
 
 const sq = (v) => `'${String(v).replace(/'/g, "'\\''")}'`;
 
+// Gate writes the diff here; derived, not trusted from the author's echo.
+const diffPath = (t) => `${PLAN.scratch}/diffs/${t.name}.diff`;
+
 const docLines = (t) => t.docs.map((d) => `- ${d.path} (fetched from ${d.url}.md)`);
 
 const authorPrompt = (t) =>
@@ -77,9 +80,10 @@ const authorPrompt = (t) =>
 const validatorPrompt = (t, authored) =>
   [
     `Validate the line-changing hunks of one cc-reference file refresh (${t.name}).`,
-    `Diff (local file path, Read it): ${authored.diffPath}`,
+    `Diff (local file path, Read it): ${diffPath(t)}`,
     "Authoritative doc(s) (local file paths, Read/Grep them):",
     ...docLines(t),
+    "Every hunk in this diff removes or changes an existing line and needs its own verdict: report ALL of them, including rewordings you would call additive (an unreported hunk is reverted).",
     "The hunk field of each verdict is the hN label at the end of each @@ line (for example \"h1\").",
     "Return {\"verdicts\": [...]} per your Output contract.",
   ].join("\n");
@@ -90,7 +94,7 @@ const results = await pipeline(
   (t) => agent(authorPrompt(t), { phase: "Update", schema: AuthorSchema, model: "sonnet" }),
   (authored, t) => {
     if (!authored) return null;
-    if (!authored.changing || !authored.changing.length || !authored.diffPath) return { authored, verdicts: [] };
+    if (!authored.changing || !authored.changing.length) return { authored, verdicts: [] };
     return agent(validatorPrompt(t, authored), {
       phase: "Verify",
       agentType: "cc-reference-validator",
@@ -101,12 +105,15 @@ const results = await pipeline(
   (prev, t) => {
     if (!prev) return null;
     const { authored, verdicts } = prev;
-    const confirmed = verdicts.filter((v) => v.verdict === "CONFIRMED" && authored.changing.includes(v.hunk));
+    // Normalize "h1" / "@@ ... h1" to the bare label; one non-CONFIRMED verdict vetoes the hunk.
+    const label = (v) => (/\bh\d+\b/.exec(v.hunk) || [])[0];
+    const vetoed = new Set(verdicts.filter((v) => v.verdict !== "CONFIRMED").map(label));
+    const confirmed = verdicts.filter((v) => v.verdict === "CONFIRMED" && authored.changing.includes(label(v)) && !vetoed.has(label(v)));
     return {
       name: t.name,
       changelog: authored.changelog,
       verdicts,
-      keep: [...new Set(confirmed.map((v) => v.hunk))],
+      keep: [...new Set(confirmed.map(label))],
       lowConfidenceKept: confirmed.filter((v) => v.confidence === "low"),
     };
   },

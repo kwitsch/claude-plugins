@@ -7,15 +7,15 @@
 //   finish <scratch> <name> [--keep h1,h2]  authoritative, fail-closed: revert every line-changing hunk not
 //                                 kept, then stamp the verified date or restore the file from HEAD
 //   release <scratch>             guarded patch bump, description date suffix
-// Writes: <scratch>/{plan.json,workflow.js,docs/,diffs/}, the target reference files,
-// plugins/cc-knowledge/.claude-plugin/plugin.json and test/cc-knowledge/test.bats.
+// Writes: <scratch>/{plan.json,workflow.js,docs/,diffs/}, the target reference files and
+// plugins/cc-knowledge/.claude-plugin/plugin.json.
 // Fail-closed: an unverified line change never survives finish.
 // stdout carries exactly one JSON object; diagnostics go to stderr.
 // Exit codes: 0 ok, 1 usage/invalid input, 2 fetch failure, 3 git failure.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +93,8 @@ function cmdPlan(args) {
   else if (process.env.CLAUDE_JOB_DIR) scratch = join(process.env.CLAUDE_JOB_DIR, "tmp", "docs");
   else scratch = mkdtempSync(join(tmpdir(), "update-cc-references-"));
   mkdirSync(join(scratch, "docs"), { recursive: true });
+  // A reused scratch dir must not leak gate/finish snapshots from an earlier run.
+  rmSync(join(scratch, "diffs"), { recursive: true, force: true });
   mkdirSync(join(scratch, "diffs"), { recursive: true });
 
   const files = [...new Set(target === "all" ? Object.values(SOURCES.targets).flat() : SOURCES.targets[target])];
@@ -269,6 +271,13 @@ function cmdFinish(args) {
   const k = args.indexOf("--keep");
   const requested = k >= 0 && args[k + 1] ? args[k + 1].split(",").map((s) => s.trim()).filter((s) => /^h\d+$/.test(s)) : [];
   const statePath = join(plan.scratch, "diffs", `${t.name}.state.json`);
+  // Idempotent: a repeat run on the file finish itself left behind returns the recorded result
+  // instead of treating its own output as a stale edit and reverting the kept hunks.
+  const donePath = join(plan.scratch, "diffs", `${t.name}.finished.json`);
+  if (existsSync(donePath)) {
+    const done = JSON.parse(readFileSync(donePath, "utf8"));
+    if (done.sha256 === sha256(t.file)) return done.result;
+  }
   const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : null;
   // Fail-closed: without a matching gate snapshot no line change can be kept.
   const stale = !state || state.sha256 !== sha256(t.file);
@@ -286,7 +295,7 @@ function cmdFinish(args) {
     stamped = stampDate(t.file, plan.date);
     status = "updated";
   }
-  return {
+  const result = {
     name: t.name,
     status,
     kept: a.changing.filter((h) => keep.has(h.id)).map((h) => h.id),
@@ -295,6 +304,8 @@ function cmdFinish(args) {
     stale,
     stamped,
   };
+  writeFileSync(donePath, JSON.stringify({ sha256: sha256(t.file), result }) + "\n");
+  return result;
 }
 
 const PLUGIN_JSON = "plugins/cc-knowledge/.claude-plugin/plugin.json";
@@ -322,10 +333,14 @@ function cmdRelease(args) {
     }
   }
   if (base === null) fail(3, `cannot read ${PLUGIN_JSON} from origin/main (fetch it first)`);
-  // Bump once per unreleased branch: a version already ahead of origin/main stays.
-  const bumped = current === base;
+  if (typeof base !== "string" || !/^\d+\.\d+\.\d+$/.test(base)) fail(1, `malformed version in origin/main ${PLUGIN_JSON}: ${base}`);
+  // Bump once per unreleased branch: a version already ahead of origin/main stays; one equal to or
+  // behind it (origin/main moved on) becomes origin/main's patch + 1.
+  const triple = (v) => v.split(".").map(Number);
+  const ahead = triple(current).reduce((r, n, i) => r || Math.sign(n - triple(base)[i]), 0) > 0;
+  const bumped = !ahead;
   if (bumped) {
-    const [a, b, c] = current.split(".").map(Number);
+    const [a, b, c] = triple(base);
     obj.version = `${a}.${b}.${c + 1}`;
   }
   const suffix = ` (CC docs read: ${plan.date})`;

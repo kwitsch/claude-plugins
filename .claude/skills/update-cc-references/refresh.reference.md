@@ -26,7 +26,7 @@
 | 0 | ok | |
 | 1 | usage / invalid input | bad subcommand or target, unknown name, missing `plan.json`, malformed plugin version |
 | 2 | fetch failure | stdout `{"ok":false,"error":"doc fetch failed","failed":[urls]}`; fix with an `altUrls` entry in `sources.json` |
-| 3 | git failure | `git diff`, `git checkout` or `git apply -R` failed; for `apply`, the target file is restored to its pre-revert content |
+| 3 | git failure | `git diff`, `git checkout` or `git apply -R` failed; for `gate`/`finish`, the target file is restored to its pre-revert content |
 
 ## Outputs
 
@@ -34,8 +34,10 @@
 | --- | --- | --- |
 | `plan` | `{ok, scratch, date, targets:[name], workflowScript}` | `<scratch>/docs/*.md`, `<scratch>/plan.json`, `<scratch>/workflow.js` |
 | `gate` | `{name, additive, changing:[hN], diffPath, autoReverted:[{versions, header}]}` | reverts unsourced-version hunks in the target file; `<scratch>/diffs/<name>.diff` (each `@@` line ends with ` hN`, `diffPath` is `null` when there are no line-changing hunks); `<scratch>/diffs/<name>.state.json` (sha256 and ids snapshot) |
-| `finish` | `{name, status:"updated"\|"unchanged", kept:[hN], reverted:[hN], autoReverted:[{versions, header}], stale:boolean}` | reverts every line-changing hunk not kept; stamps the `verified` date when changes remain, otherwise restores the file from `HEAD` (`status:"unchanged"`) |
-| `release` | `{changed:false}` or `{changed:true, files, previousVersion, version, bumped, date}` | `plugins/cc-knowledge/.claude-plugin/plugin.json` (version bumped once per branch against `origin/main`, description suffix replaced in place) |
+| `finish` | `{name, status:"updated"\|"unchanged", kept:[hN], reverted:[hN], autoReverted:[{versions, header}], stale:boolean, stamped:boolean\|null}` | reverts every line-changing hunk not kept; stamps the `verified` date when changes remain, otherwise restores the file from `HEAD` (`status:"unchanged"`) |
+| `release` | `{changed:false}` or `{changed:true, files, previousVersion, version, bumped, date}` | `plugins/cc-knowledge/.claude-plugin/plugin.json` (version bumped once per branch against `origin/main`: a version ahead of it stays, otherwise `origin/main` patch + 1, description suffix replaced in place) |
+
+`finish` writes `<scratch>/diffs/<name>.finished.json`; a repeat run on the file it left behind returns the recorded result unchanged. `plan` clears `<scratch>/diffs/`.
 
 `stale: true` in `finish` means the file changed after its `gate` run or no snapshot exists; all its line-changing hunks are reverted.
 

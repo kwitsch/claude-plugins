@@ -71,15 +71,19 @@ is limited to what each step names. Reference files stay in English regardless o
    replaced the `description` date suffix ` (CC docs read: YYYY-MM-DD)` in place. Never edit
    `marketplace.json`, never create a tag.
 
-8. **Commit, push, open the PR.** Replace `<target>` with the target name and `<changelog>` with the
-   step 6 changelog. No `Co-Authored-By:` trailer, no "Generated with" footer.
+8. **Commit, push, open the PR.** Replace `<target>` with the target name and put the step 6
+   changelog between the quoted heredoc markers (the quoted delimiter keeps backticks and `$` in the
+   changelog literal). No `Co-Authored-By:` trailer, no "Generated with" footer.
 
    ```bash
    [ "$(git branch --show-current)" = main ] && git checkout -b "fix/refresh-cc-references-<target>-$(date +%Y%m%d-%H%M%S)"
-   git add plugins/cc-knowledge/skills/cc-reference/ plugins/cc-knowledge/.claude-plugin/plugin.json test/cc-knowledge/test.bats
+   git add plugins/cc-knowledge/skills/cc-reference/ plugins/cc-knowledge/.claude-plugin/plugin.json
    git commit -m "fix(cc-knowledge): refresh CC reference files"
    git push -u origin HEAD
-   gh pr create --title "fix(cc-knowledge): refresh CC reference files" --body "<changelog>"
+   gh pr create --title "fix(cc-knowledge): refresh CC reference files" --body-file <scratch>/pr-body.md
    ```
+
+   Write the step 6 changelog to `<scratch>/pr-body.md` with the Write tool before running this block
+   (never inline it in the shell command: it contains backticks).
 
 9. **Report** the new version, the date stamped into the description, the PR URL and the changelog.
