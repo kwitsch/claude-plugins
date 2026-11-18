@@ -111,26 +111,26 @@ followed_by() { # <head> <next> <file>
   [ "$status" -ne 0 ]
 }
 
-@test "build-task SKILL.md references all four usage reference files" {
-  for f in workflows/explore.md workflows/design.md workflows/spec.md references/spec-driven-delivery.md; do
+@test "build-task SKILL.md references all seven usage reference files" {
+  for f in workflows/explore.md workflows/design.md workflows/spec.md workflows/plan.md workflows/implement.md workflows/review.md workflows/ship.md; do
     run rg_or_grep -F "$f" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
 }
 
-@test "all four usage reference files exist and are non-empty; design-to-spec.md is gone" {
-  for f in workflows/explore.md workflows/design.md workflows/spec.md references/spec-driven-delivery.md; do
+@test "all seven usage reference files exist and are non-empty; design-to-spec.md is gone" {
+  for f in workflows/explore.md workflows/design.md workflows/spec.md workflows/plan.md workflows/implement.md workflows/review.md workflows/ship.md; do
     [ -s "$SKILL/$f" ]
   done
   [ ! -e "$REFS/design-to-spec.md" ]
 }
 
-@test "build-task SKILL.md runs the design pipeline by scriptPath and sizes the task (jev-api or own reasoning)" {
-  for p in 'Skill dir: ${CLAUDE_SKILL_DIR}' 'SKILL_DIR' 'scriptPath' 'explore.workflow.js' 'design.workflow.js' 'spec.workflow.js' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'taskflow:spec-driven-delivery'; do
+@test "build-task SKILL.md runs all seven scripts by scriptPath and sizes the task (jev-api or own reasoning)" {
+  for p in 'Skill dir: ${CLAUDE_SKILL_DIR}' 'SKILL_DIR' 'scriptPath' 'explore.workflow.js' 'design.workflow.js' 'spec.workflow.js' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'plan.workflow.js' 'implement.workflow.js' 'review.workflow.js' 'ship.workflow.js' 'IMPLEMENT_PATH' 'REVIEW_PATH' 'PR_BODY_PATH' 'implement-<slug>.json' 'review-<slug>.json' 'pr-body-<slug>.md' 'Review level: <level> (size <X>)'; do
     run rg_or_grep -F -- "$p" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
-  for absent in 'design-to-spec' 'difficulty'; do
+  for absent in 'design-to-spec' 'difficulty' 'spec-driven-delivery' 'SHIP: false' 'invoke by name'; do
     run rg_or_grep -F -- "$absent" "$SKILL/SKILL.md"
     [ "$status" -ne 0 ]
   done
@@ -1448,4 +1448,19 @@ mm_git_fixture() {
   done
   run bash -c "grep -lE 'classify|PINNED_OPUS|tasks.length > 4' '$BT_WF'/*.workflow.js || true"
   [ "$output" = "" ]
+}
+
+@test "build-task SKILL.md step 4 runs plan, implement, review and ship with the documented args and one error rule" {
+  F="$SKILL/SKILL.md"
+  for p in '{SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH}' '{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR}' '{SPEC_PATH, PLAN_PATH, REVIEW_PATH, BRANCH_NAME, BASE_BRANCH, LEVEL}' '{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, SKILL_DIR, PLUGIN_ROOT}' '`S` or `M` → `high`, `L` or `XL` → `max`' 'PR/MR skipped at the user' '`SIZE` picks the designer model, the planner model and the review level.' 'taskflow:review-finder' 'taskflow:review-verifier' 'taskflow:fix-applier' 'plannerModel' 'never retry the merge' 'half-implemented plan'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  # the error rule is stated exactly once
+  run bash -c "grep -c 'Review error' '$F'"
+  [ "$output" = "1" ]
+  run rg_or_grep -F 'Review error that carries' "$F"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'CLAUDE_PLUGIN_ROOT}/workflows' "$F"
+  [ "$status" -ne 0 ]
 }
