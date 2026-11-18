@@ -14,13 +14,13 @@ report-only lean pass) → fix application → write the review result file.
 
 ## Invocation
 
-**Primary:** `Workflow({scriptPath: "<SKILL_DIR>/workflows/review.workflow.js", args})`
+**Primary:** `Workflow({ name: "taskflow:build-task-review", args })`
 with ONE structured `args` object — the script reads it as the global `args`.
 The runtime may deliver the object as a JSON string; `decodeArgs` parses that
 transparently.
 
 **Fallback** — only when the return is `stage: 'args'` and its `error` starts
-with `args global is undefined`: Read `<SKILL_DIR>/workflows/review.workflow.js`, prepend
+with `args global is undefined`: Read `<PLUGIN_ROOT>/workflows/build-task-review.workflow.js`, prepend
 exactly one line after the `meta` block — `const args = { … }` as a JSON object
 literal — and submit the whole text via the Workflow tool's `script`
 parameter, without the tool-level `args` parameter. Any other
@@ -31,8 +31,7 @@ plugin agents `taskflow:review-finder`, `taskflow:review-verifier` and
 `taskflow:fix-applier` (static role prompts in the plugin's `agents/`
 directory, addressed via `agentType`). An unknown type throws hard at
 dispatch, so both invocation paths require the taskflow plugin to be loaded.
-The scope, lean-review, synthesizer and scribe agents are fully inline. No
-role file is read: the script takes no `SKILL_DIR`.
+The scope, lean-review, synthesizer and scribe agents are fully inline.
 
 ## Parameters (`args` object)
 

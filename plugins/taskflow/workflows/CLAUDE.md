@@ -1,6 +1,6 @@
 # CLAUDE.md — taskflow/workflows
 
-`*.workflow.js` files — `workflows/changes-review.workflow.js` here and build-task's seven scripts in `skills/build-task/workflows/` — are excluded from the repo's `eslint.config.mjs` (root `ignores`, `**/*.workflow.js`): Workflow-tool scripts run inside an implicit async wrapper, so top-level `await`/`return` are valid there but not parseable as a standalone ES module.
+`*.workflow.js` files — `changes-review.workflow.js` and build-task's seven `build-task-*.workflow.js` scripts here — are excluded from the repo's `eslint.config.mjs` (root `ignores`, `**/*.workflow.js`): Workflow-tool scripts run inside an implicit async wrapper, so top-level `await`/`return` are valid there but not parseable as a standalone ES module.
 
 ## Model assignment
 
@@ -10,32 +10,32 @@ No model tier is pinned: every role floats on its family alias (`haiku`/`sonnet`
 
 The two highest-judgment authoring roles pick their model per run from the `SIZE` arg (build-task sizes the task once after Explore — jev-api `score`, or its own reasoning). Both use the same table — `S → sonnet`, `M → opus`, `L → opus`, `XL → fable`, unset or unknown → `opus` — and the same fallbacks: a `fable` dispatch that throws falls back to `opus` for the rest of the run, and a `null` result on `fable` is retried on `opus`.
 
-- **designer** (`skills/build-task/workflows/design.workflow.js`): `DESIGN_MODEL` / `designerModel()` resolve `DESIGNER_MODEL`, passed to the designer's `agent()` call.
-- **planner** (`skills/build-task/workflows/plan.workflow.js`): `PLAN_MODEL` / `plannerModel()` resolve `PLANNER_MODEL`, used in all three planner dispatches.
+- **designer** (`workflows/build-task-design.workflow.js`): `DESIGN_MODEL` / `designerModel()` resolve `DESIGNER_MODEL`, passed to the designer's `agent()` call.
+- **planner** (`workflows/build-task-plan.workflow.js`): `PLAN_MODEL` / `plannerModel()` resolve `PLANNER_MODEL`, used in all three planner dispatches.
 
 Fixed bare `opus`, not size-driven:
 
-- `MODELS.synthesizer` in `skills/build-task/workflows/review.workflow.js` and `changes-review.workflow.js`.
+- `MODELS.synthesizer` in `workflows/build-task-review.workflow.js` and `changes-review.workflow.js`.
 - `implModel()` in `implement.workflow.js` — `opus` for `complexity === "complex"` tasks, `haiku` otherwise (the per-task fixer reuses the implementer's model).
 
-Role files have no frontmatter, so a moved role's model is always the explicit `agent()` `model` option: `DESIGNER_MODEL`, `PLANNER_MODEL`, or the script's `MODELS` entry (merger, pr-author, shipper and ci-monitor on `haiku`, ci-fixer on `sonnet`). The `MODELS` object at the top of each script is the single place to change a fixed assignment.
+The agents' frontmatter `model` is only a default; the explicit `agent()` `model` option always wins: `DESIGNER_MODEL`, `PLANNER_MODEL`, or the script's `MODELS` entry (merger, pr-author, shipper and ci-monitor on `haiku`, ci-fixer on `sonnet`). The `MODELS` object at the top of each script is the single place to change a fixed assignment.
 
 The review depth is not a model choice but follows the same size: build-task maps `SIZE` to `LEVEL` (`S`/`M` → `high`, `L`/`XL` → `max`) and passes it to `review.workflow.js`; no script derives it from the plan.
 
 ## `NO_NARRATION` on inline prompts
 
-- Only three roles are dispatched through a plugin `agentType` (`review-finder`, `review-verifier`, `fix-applier`, by `review.workflow.js` and `changes-review.workflow.js`); their `agents/*.md` system prompt carries the rule. Every other prompt in every script is inline and prefixed with `NO_NARRATION`: the scope-gathering, synthesizer and lean-pass agents of both review scripts, and every agent of the other six build-task scripts — scout, explorers, memory recall, scribe, designer, design reviewer, spec writer, spec reviewer, planner, plan checker, plan loader, per-task implementer/reviewer/fixer, merger, result-file scribe, pr-author, shipper, ci-monitor, ci-fixer.
-- Role-backed inline agents (designer, design reviewer, planner, merger, pr-author, shipper, ci-monitor, ci-fixer) additionally read their role file (`skills/build-task/roles/<role>.md`) by the absolute path built from the `SKILL_DIR` arg; their prompt starts with `NO_NARRATION` followed by "Read your role definition at … first and follow it exactly."
+- Eleven roles are dispatched through a plugin `agentType` (`review-finder`, `review-verifier`, `fix-applier`, plus the eight build-task roles designer, design-reviewer, planner, worktree-merger, pr-author, shipper, ci-monitor, ci-fixer); their `agents/*.md` system prompt carries the rule. Every other prompt in every script is inline and prefixed with `NO_NARRATION`: the scope-gathering, synthesizer and lean-pass agents of both review scripts, and the remaining agents of the other build-task scripts — scout, explorers, memory recall, scribe, spec writer, spec reviewer, plan checker, plan loader, per-task implementer/reviewer/fixer, result-file scribe, ship's result-files check. `build-task-design.workflow.js` has no inline prompt and no `NO_NARRATION` constant.
+- Role agents are named only by `agentType` (their model comes from the script's `model` option, which overrides the agent frontmatter); no prompt of theirs points at a role file.
 - Each script defines `const NO_NARRATION = "…"` (wording identical in every script and to the rule in `agents/*.md`) near the top. Add the same prefix to any new inline (non-`agentType`) prompt in any workflow script.
 - The built-in `agentType: "Explore"` path (`explorerPrompt` in `explore.workflow.js`) carries the rule only in the per-call prompt text: its system prompt is foreign to this plugin.
 
 ## `design.workflow.js` designer prompt
 
-The designer prompt in `skills/build-task/workflows/design.workflow.js` states explicitly that `keypoints` and `openQuestions` are separate structured-output fields — `openQuestions` must never be embedded as text/tags inside `keypoints` (a model that conflates the two fails `StructuredOutput` schema validation repeatedly, or worse, emits schema-valid placeholder junk that then sails into the pipeline undetected). `runDesigner`'s retry (`hasContaminatedKeypoints`) also retries on a schema-valid result whose `keypoints` string still contains contamination markers (`<openQuestions`, `</invoke`), not just on a `null` result — see `skills/build-task/roles/designer.md` for the parallel role-file statement of this same rule.
+The designer prompt in `workflows/build-task-design.workflow.js` states explicitly that `keypoints` and `openQuestions` are separate structured-output fields — `openQuestions` must never be embedded as text/tags inside `keypoints` (a model that conflates the two fails `StructuredOutput` schema validation repeatedly, or worse, emits schema-valid placeholder junk that then sails into the pipeline undetected). `runDesigner`'s retry (`hasContaminatedKeypoints`) also retries on a schema-valid result whose `keypoints` string still contains contamination markers (`<openQuestions`, `</invoke`), not just on a `null` result — see `agents/designer.md` for the parallel role-file statement of this same rule.
 
 ## Lean (ponytail) review — embedded prose, report-only
 
-Both `skills/build-task/workflows/review.workflow.js`'s Review phase and the
+Both `workflows/build-task-review.workflow.js`'s Review phase and the
 standalone `changes-review.workflow.js` end with a separate, report-only lean pass
 (`PONYTAIL_REVIEW_SCHEMA` → `ponytailReview`) that reuses the already-built
 `SCOPE_BLOCK`/`DIFF_CMD` and reports over-engineering ONLY. `changes-review`'s
@@ -46,8 +46,8 @@ candidate, and any claim at the same location as a surviving combined
 correctness+cleanup finding is dropped (dedup) so the report never shows an
 unvetted claim next to — or contradicting — a verified one. Still never
 routed to fix application, never escalated.
-`skills/build-task/roles/designer.md` and
-`skills/build-task/roles/design-reviewer.md` embed ponytail's reuse
+`agents/designer.md` and
+`agents/design-reviewer.md` embed ponytail's reuse
 ladder as static prose: ponytail is an external, non-allowlisted-marketplace
 plugin, so there is deliberately no runtime `Skill`/`dependencies` reference
 to it (the embedded phrasing can drift from upstream — that is the accepted,
@@ -69,8 +69,8 @@ Write tool.
 
 ## Conditional graphmind path (build-task explorers, delivery planner)
 
-Both `skills/build-task/workflows/explore.workflow.js` and
-`skills/build-task/workflows/plan.workflow.js` derive a module-level `USE_GRAPHMIND`
+Both `workflows/build-task-explore.workflow.js` and
+`workflows/build-task-plan.workflow.js` derive a module-level `USE_GRAPHMIND`
 boolean from the `GRAPHMIND_AVAILABLE` + `REPO_PATH` args (a set flag with no
 absolute `REPO_PATH` fails loud with a `stage: 'args'` error before any agent
 runs). The explore script's per-subsystem explorers run one of two ways: when

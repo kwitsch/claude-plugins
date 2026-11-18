@@ -14,20 +14,20 @@ task implement, review, at most one fix → per-wave merge for multi-task waves
 
 ## Invocation
 
-**Primary:** `Workflow({scriptPath: "<SKILL_DIR>/workflows/implement.workflow.js", args})`
+**Primary:** `Workflow({ name: "taskflow:build-task-implement", args })`
 with ONE structured `args` object — the script reads it as the global `args`.
 The runtime may deliver the object as a JSON string; `decodeArgs` parses that
 transparently.
 
 **Fallback** — only when the return is `stage: 'args'` and its `error` starts
-with `args global is undefined`: Read `<SKILL_DIR>/workflows/implement.workflow.js`, prepend
+with `args global is undefined`: Read `<PLUGIN_ROOT>/workflows/build-task-implement.workflow.js`, prepend
 exactly one line after the `meta` block — `const args = { … }` as a JSON object
 literal — and submit the whole text via the Workflow tool's `script`
 parameter, without the tool-level `args` parameter. Any other
 `stage: 'args'` error means a malformed payload: fix the call.
 
-Role file: the merger is an inline agent (no plugin agent type); it reads its
-role definition by absolute path — `<SKILL_DIR>/roles/worktree-merger.md`. The
+Role agent: the merger is the plugin agent `taskflow:worktree-merger`
+(`agents/`, dispatched via `agentType`, model from the script). The
 plan loader, implementer, per-task reviewer, fixer and scribe are fully inline
 agents.
 
@@ -39,12 +39,11 @@ agents.
 | `IMPLEMENT_PATH`      | string  | yes      | Absolute temp path of the JSON result file this script writes (`implement-<slug>.json`)                                                                                                                                                                 |
 | `BRANCH_NAME`         | string  | yes      | Current work branch (`git branch --show-current`)                                                                                                                                                                                                       |
 | `SCRATCH_DIR`         | string  | yes      | Absolute session-scratch directory, trailing slash included (build-task's `<session scratchpad>/build-task/`) — implementers write `test-evidence-task-<id>.txt` there for the reviewer                                                                 |
-| `SKILL_DIR`           | string  | yes      | Absolute path of build-task's skill directory; the merger role file is read from its `roles/`                                                                                                                                                           |
 | `GRAPHMIND_AVAILABLE` | boolean | no       | `false` (default). `true` ⇒ the implementers, per-task reviewers and fixers (`project` = their own checkout, `git rev-parse --show-toplevel`) get a hint to use the graphmind MCP tools (`project` as given). Requires a non-empty absolute `REPO_PATH` |
 | `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                                                                                                             |
 
 Guards: missing required keys, or a `PLAN_PATH`, `IMPLEMENT_PATH`,
-`SCRATCH_DIR` or `SKILL_DIR` that is not an absolute path return
+or `SCRATCH_DIR` that is not an absolute path return
 `status: 'error', stage: 'args'` before any agent is dispatched.
 
 ## Preconditions

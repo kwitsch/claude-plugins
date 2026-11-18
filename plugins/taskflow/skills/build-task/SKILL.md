@@ -15,8 +15,8 @@ allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "As
 Runs the feature-development pipeline (Design → Intent confirmation → Plan →
 Implement → Review → Ship) for `$task_description`, with the heavy phases
 executed by Workflow scripts. All seven are single-purpose scripts shipped in
-this skill's `workflows/` directory and run by `scriptPath` (they are not
-plugin workflows): the design pipeline — explore, design, spec — and the
+the plugin's root `workflows/` directory and run by name as
+`taskflow:build-task-<name>`: the design pipeline — explore, design, spec — and the
 delivery pipeline — plan, implement, review, ship. One usage reference per
 script — parameters, exit contract, behavior — lives beside it; read the
 relevant one BEFORE each invocation:
@@ -83,15 +83,12 @@ plugin context, or an unresolved literal `${CLAUDE_PLUGIN_ROOT}` token) →
 pass it through unchanged; shipper degrades to `mergeState: 'unknown'` and
 skips remediation (the pre-fix loop still runs).
 
-Skill dir: ${CLAUDE_SKILL_DIR}
-
-Capture the `Skill dir:` value above too: `SKILL_DIR` = `<Skill dir>`
-(absolute). The scripts all live under `<SKILL_DIR>/workflows/`:
-`explore.workflow.js`, `design.workflow.js`, `spec.workflow.js`,
-`plan.workflow.js`, `implement.workflow.js`, `review.workflow.js` and
-`ship.workflow.js`. Same pre-injection substitution and the same rule as the
-plugin root above: no load-time shell injection, never the
-exclamation-backtick sequence.
+The scripts live in the plugin root `workflows/` directory as
+`build-task-explore`, `build-task-design`, `build-task-spec`,
+`build-task-plan`, `build-task-implement`, `build-task-review` and
+`build-task-ship` (`.workflow.js`); their role agents (`taskflow:designer`,
+`taskflow:planner`, …) live in the plugin's `agents/` and are dispatched by
+the scripts via `agentType` — no skill directory is threaded through.
 
 ## Session temp files
 
@@ -127,17 +124,22 @@ Every pipeline file is session-only, never a repository file:
    script is rejected with a meta/API validation error → stop and report.
    This skill deliberately has **no Agent-engine fallback** — the workflows
    are the engine.
-2. **Invoke by `scriptPath` with `args`:**
-   `Workflow({scriptPath: "<SKILL_DIR>/workflows/<name>.workflow.js", args})` with
-   `<name>` = `explore`, `design`, `spec`, `plan`, `implement`, `review` or
-   `ship`, and ONE structured `args` object — the script reads it as the
-   `args` global; keys and return contract are in the per-script reference
-   files linked above. Structured data, so task text and user answers need no
-   string escaping. The runtime may deliver the object serialized as a JSON
-   string — the scripts' `decodeArgs` parses that transparently.
+2. **Invoke by name with `args`:** the scripts are plugin workflows in the
+   plugin root `workflows/` directory, so they are auto-discovered and run
+   namespaced by the plugin name. Never use `scriptPath`: the Workflow tool
+   only loads a `scriptPath` it can itself read (working directory or an
+   added directory), and the plugin cache is neither — the call is rejected.
+   `Workflow({name: "taskflow:build-task-<name>", args})` with `<name>` =
+   `explore`, `design`, `spec`, `plan`, `implement`, `review` or `ship` (no
+   leading `/`), and ONE structured `args` object — the script reads it as
+   the `args` global; keys and return contract are in the per-script
+   reference files linked above. Structured data, so task text and user
+   answers need no string escaping. The runtime may deliver the object
+   serialized as a JSON string — the scripts' `decodeArgs` parses that
+   transparently.
 3. **Fallback — ad-hoc script with prepended args:** when a return is
    `stage: 'args'` and its `error` starts with `args global is undefined`:
-   Read the script — `<SKILL_DIR>/workflows/<name>.workflow.js` — prepend
+   Read the script — `<Plugin root>/workflows/build-task-<name>.workflow.js` — prepend
    exactly one line after the `meta` block — `const args = { … }` as a JSON
    object literal — and send the whole text via the `script` parameter. NEVER
    pass the tool-level `args` parameter on an ad-hoc `{script}` call: the
@@ -234,13 +236,13 @@ Every pipeline file is session-only, never a repository file:
       `Size: <X> (own reasoning: <reason>)`. No retry loop; sizing never
       fails the run. `SIZE` picks the designer model, the planner model and the review level.
    4. **Design.** Run the design script with args
-      `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
+      `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
       Then by `status`:
       - `user_input_required` → one `AskUserQuestion` call covering the
         returned `questions` (their `options` verbatim as choices; free text
         arrives via "Other"; use `whyItMatters` as the question context).
         Re-run the design script with `RESUME: true`, the **same**
-        `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR`, `SIZE`, `GRAPHMIND_AVAILABLE`
+        `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`, `GRAPHMIND_AVAILABLE`
         and `REPO_PATH`, and `USER_INPUT` = the answers as `[{id, answer}]` (a JSON value, never
         `[object Object]`). Repeat this bullet until `complete` or `error` —
         new genuine questions after a resume are expected, not a failure.
@@ -259,7 +261,7 @@ Every pipeline file is session-only, never a repository file:
    "Other"). "No" picked without detail → one clarifying `AskUserQuestion`
    round for what should change; never guess. With corrections in hand →
    re-run step 2.4 (design script) with `RESUME: true`, `USER_INPUT` = the
-   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR`, `SIZE`,
+   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`,
    `GRAPHMIND_AVAILABLE` and `REPO_PATH` (the script records the corrections as binding USER DECISIONs and
    rewrites the draft; handle its return as in step 2.4), then step 2.5 (spec
    script), then re-ask this step from the new keypoints. Explore and Size are
@@ -269,11 +271,11 @@ Every pipeline file is session-only, never a repository file:
    (invocation rules above), branch on `status`. Paths come from the temp
    directory above.
    1. **Plan.** Run the plan script with args
-      `{SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`
+      `{SPEC_PATH, PLAN_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`
       (`SIZE` and `JEV_AVAILABLE` from step 2.3, the graphmind flag from step 2.1). `complete` →
       keep `plannerModel`.
    2. **Implement.** Run the implement script with args
-      `{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
+      `{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
       (`SCRATCH_DIR` is the session-temp directory from "Session temp files"
       above, trailing slash included — implementers write their test-evidence
       files there for the per-task reviewer). `complete` → keep `tasks`,
@@ -288,7 +290,7 @@ Every pipeline file is session-only, never a repository file:
       (`$task_description` or a later message says so) — there is no ship arg
       for it; step 5 then reports "PR/MR skipped at the user's request".
       Otherwise run the ship script with args
-      `{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, SKILL_DIR, PLUGIN_ROOT, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`.
+      `{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`.
       It pushes, creates or updates the PR/MR and watches CI with bounded fix
       rounds; keep the returned `ship` object (url, CI outcome). Ship problems
       are reportable `ship.status` values, not errors.
