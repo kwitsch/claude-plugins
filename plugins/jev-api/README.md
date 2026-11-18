@@ -1,6 +1,8 @@
 # jev-api
 
-Gives Claude three tools that ask TypeSafe's **Jev System One** API one question each about a piece of text: `noul` (yes/no probability), `choice` (pick among named options) and `score` (rate along ordered levels). A fourth tool, `batch`, asks several of these questions about one text in a single request. The tools take text only and use the same endpoint and auth conventions as the Typesafe JS SDK.
+Gives Claude one tool, `request`, that asks TypeSafe's **Jev System One** API one or more questions about a piece of text in a single request: `noul` (yes/no probability), `choice` (pick among named options) and `score` (rate along ordered levels). The tool takes text only and uses the same endpoint and auth conventions as the Typesafe JS SDK.
+
+Coming from 0.6: `batch` is now `request`; the single-question tools `noul`, `choice` and `score` are removed: send one question in `request`, its answer is the array's only element. Plugins, agents and skills that name `mcp__jev-api__batch`, `__noul`, `__choice` or `__score` must name `mcp__jev-api__request` instead (they find no tool otherwise). Restart Claude Code after updating: the engine cannot unregister a tool, so a session that keeps running can still list the removed tools, and a call to them fails.
 
 ## Environment
 
@@ -11,14 +13,14 @@ Gives Claude three tools that ask TypeSafe's **Jev System One** API one question
 | `JEV_URL`                | no       | The full System One route; wins over `TYPESAFE_BASE_URL`. A jev-api variable, not an SDK one.                                    |
 | `TYPESAFE_DEFAULT_MODEL` | no       | Model sent with each request, default `jev-latest`.                                                                              |
 
-The four tools are always registered. While none of `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` or `JEV_URL` is non-blank, Claude Haiku (`claude-haiku-5-5`, through the session's own login) answers instead of Jev: it is asked for JSON in the System One response format, and a reply that does not fit the question (wrong type, option, level or probability range) is an error starting with `<tool>: fallback`, never a made-up answer. A configured Jev that answers with an HTTP error status (4xx or 5xx) is taken over by Haiku, within the timeout that is left (the call's timeout less the seconds the Jev request used); a timeout or a network error stays an error. The variables are read from Claude Code's own environment on every call, so set them before Claude Code starts (in the shell or in the settings' `env`): a variable exported in another shell later does not reach it. With only `TYPESAFE_API_KEY` set, the default endpoint `https://api.typesafe.ai/v1/systemone` is used.
+The tool is always registered. While none of `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` or `JEV_URL` is non-blank, Claude Haiku (`claude-haiku-5-5`, through the session's own login) answers instead of Jev: it is asked for JSON in the System One response format, and a reply that does not fit the question (wrong type, option, level or probability range) is an error starting with `request: fallback`, never a made-up answer. A configured Jev that answers with an HTTP error status (4xx or 5xx) is taken over by Haiku, within the timeout that is left (the call's timeout less the seconds the Jev request used); a timeout or a network error stays an error. The variables are read from Claude Code's own environment on every call, so set them before Claude Code starts (in the shell or in the settings' `env`): a variable exported in another shell later does not reach it. With only `TYPESAFE_API_KEY` set, the default endpoint `https://api.typesafe.ai/v1/systemone` is used.
 
 ## Options
 
-| Option     | Default | Meaning                                                                                                     |
-| ---------- | ------- | ----------------------------------------------------------------------------------------------------------- |
-| `timeout`  | `20`    | HTTP timeout of one System One request in seconds, for tool calls that give no valid `timeout` of their own |
-| `overflow` | `haiku` | What a call does when its state and questions are too large for System One: `error`, `truncate` or `haiku`  |
+| Option     | Default | Meaning                                                                                                    |
+| ---------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `timeout`  | `20`    | HTTP timeout of one System One request in seconds, for calls that give no valid `timeout` of their own     |
+| `overflow` | `haiku` | What a call does when its state and questions are too large for System One: `error`, `truncate` or `haiku` |
 
 The timeout of a call is its `timeout` input when that is a number above 0; otherwise the `timeout` option when that is a number above 0; otherwise 20 seconds. Claude Code ends one request after 30 seconds on its own, so a longer timeout counts as 30.
 
@@ -42,60 +44,34 @@ Overflow modes, for a prompt that does not fit:
 
 Without a configured Jev there is no preflight and no store access: Haiku answers as before, with a state over 150000 characters cut the same way first.
 
-## Tools
+## Tool
 
-Each tool is registered at session start and called by its full name, `mcp__jev-api__<type>`. `instructions` and `state` are text; `criteria` is an object or an array depending on the type; `batch` takes its questions as a required array of objects; the optional `timeout` is a number of seconds; the optional `overflow` is `error`, `truncate` or `haiku` (see Large states).
+The tool is registered at session start and called by its full name, `mcp__jev-api__request`. `state` is text; `questions` is a required array of objects; the optional `timeout` is a number of seconds; the optional `overflow` is `error`, `truncate` or `haiku` (see Large states).
 
-The plugin answers these calls itself, before Claude Code's permission check: there is no permission prompt, `ask` rules and PreToolUse hooks do not apply, and the text goes to the configured endpoint as soon as Claude calls a tool. A `permissions.deny` rule for `mcp__jev-api` (or `mcp__jev-api__<type>`) removes the tools (`--disallowedTools mcp__jev-api__batch` removes only `batch`).
+The plugin answers these calls itself, before Claude Code's permission check: there is no permission prompt, `ask` rules and PreToolUse hooks do not apply, and the text goes to the configured endpoint as soon as Claude calls the tool. A `permissions.deny` rule for `mcp__jev-api` (or `mcp__jev-api__request`) removes the tool.
 
-### `mcp__jev-api__noul`
+### `mcp__jev-api__request`
 
-| Input          | Values                                       | Meaning                                              |
-| -------------- | -------------------------------------------- | ---------------------------------------------------- |
-| `instructions` | string, required                             | The yes/no question                                  |
-| `state`        | string, required                             | The text the question is about                       |
-| `timeout`      | number, optional                             | HTTP timeout of the request in seconds (see Options) |
-| `criteria`     | object with optional strings `true`, `false` | What counts as true and as false                     |
+| Input       | Values                                   | Meaning                                                                |
+| ----------- | ---------------------------------------- | ---------------------------------------------------------------------- |
+| `state`     | string, required                         | The text all questions are about                                       |
+| `timeout`   | number, optional                         | HTTP timeout of the request in seconds (see Options)                   |
+| `overflow`  | `error`, `truncate` or `haiku`, optional | What happens when the state is too large (see Large states)            |
+| `questions` | array of at least one question, required | Each is `{ "type", "instructions", "criteria" }`, rules per type below |
 
-Result: `{"type":"noul", ...}` with the answer's probability (0..1).
+| Question type | `instructions`      | `criteria`                                                                              | Answer                                                                                                                                                                                                                                                                              |
+| ------------- | ------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `noul`        | the yes/no question | optional object with optional strings `true`, `false`: what counts as true and as false | `{"type":"noul", ...}` with the answer's probability (0..1)                                                                                                                                                                                                                         |
+| `choice`      | what to choose      | object, 1 to 255 string values, required: option name -> description                    | `{"type":"choice","choice":<option>,"confidence":<0..1>,"probabilities":{<option>:<0..1>}}`                                                                                                                                                                                         |
+| `score`       | what to rate        | array of 2 to 10 strings, required: the levels, lowest first; scores start at 0         | `{"type":"score","score":<expected level>,"confidence":<0..1>,"legend":{"0":<level>,...},"probabilities":{"0":<0..1>,...}}`: the probability-weighted level (0 is the first level, a value between two levels is fractional); `legend` and `probabilities` are keyed by level index |
 
-### `mcp__jev-api__choice`
-
-| Input          | Values                                   | Meaning                                              |
-| -------------- | ---------------------------------------- | ---------------------------------------------------- |
-| `instructions` | string, required                         | What to choose                                       |
-| `state`        | string, required                         | The text the question is about                       |
-| `timeout`      | number, optional                         | HTTP timeout of the request in seconds (see Options) |
-| `criteria`     | object, 1 to 255 string values, required | Option name -> description                           |
-
-Result: `{"type":"choice","choice":<option>,"confidence":<0..1>,"probabilities":{<option>:<0..1>}}`.
-
-### `mcp__jev-api__score`
-
-| Input          | Values                             | Meaning                                              |
-| -------------- | ---------------------------------- | ---------------------------------------------------- |
-| `instructions` | string, required                   | What to rate                                         |
-| `state`        | string, required                   | The text the question is about                       |
-| `timeout`      | number, optional                   | HTTP timeout of the request in seconds (see Options) |
-| `criteria`     | array of 2 to 10 strings, required | The levels, lowest first; scores start at 0          |
-
-Result: `{"type":"score","score":<expected level>,"confidence":<0..1>,"legend":{"0":<level>,...},"probabilities":{"0":<0..1>,...}}`. The score is the probability-weighted level: 0 is the first level, and a value between two levels is fractional. `legend` and `probabilities` are keyed by level index.
-
-### `mcp__jev-api__batch`
-
-| Input       | Values                                   | Meaning                                                                                                                              |
-| ----------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `state`     | string, required                         | The text all questions are about                                                                                                     |
-| `timeout`   | number, optional                         | HTTP timeout of the request in seconds (see Options)                                                                                 |
-| `questions` | array of at least one question, required | Each is `{ "type": "noul" \| "choice" \| "score", "instructions", "criteria" }` with that tool's `instructions` and `criteria` rules |
-
-All questions go out in one System One request. Result: a JSON array of the answers in question order, each exactly as the matching single tool returns it. The call is all or nothing: an invalid question (the error names it, `questions[<index>]: ...`), an HTTP error that Haiku cannot take over (see Errors) or a missing answer fails the whole call.
+All questions go out in one System One request. Result: a JSON array of the answers in question order (one question: an array of one answer). The call is all or nothing: an invalid question (the error names it, `questions[<index>]: ...`), an HTTP error that Haiku cannot take over (see Errors) or a missing answer fails the whole call.
 
 ## HTTP transport
 
 The System One request is made by a small MCP server of this plugin (`mcp/server.mjs`, started by Claude Code through `.mcp.json` with `node`), not by Claude Code's own `$.http.fetch`: that one can neither be given a timeout nor be cancelled, and a request that timed out or was abandoned kept running and slowed later ones. The server enforces each call's timeout (at most 30 seconds) and closes the connection at once when it expires or when the call is abandoned, and it reads `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `JEV_URL` and `TYPESAFE_DEFAULT_MODEL` from the environment Claude Code runs in once at start (a running process's environment does not change, so a change needs a restart of Claude Code).
 
-- **Two more tools show up in the tool list** (deferred behind ToolSearch): `mcp__plugin_jev-api_http__request` and `mcp__plugin_jev-api_http__cancel`. They are the plugin's internal transport; the plugin refuses every call that does not come from itself (a tool the plugin calls cannot be hidden from the model, so it is refused instead). Use the four tools above.
+- **Two more tools show up in the tool list** (deferred behind ToolSearch): `mcp__plugin_jev-api_http__request` and `mcp__plugin_jev-api_http__cancel`. They are the plugin's internal transport; the plugin refuses every call that does not come from itself (a tool the plugin calls cannot be hidden from the model, so it is refused instead). Use `mcp__jev-api__request`.
 - **Node must be on the `PATH`** of Claude Code for the server. When the server cannot start, answers nothing or fails, the plugin falls back to `$.http.fetch` (without cancellation and with the engine's own 30 second cap), logs `jev-api: HTTP server not available, using $.http.fetch: <reason>` once and tries the server again after 60 seconds.
 - The server needs no configuration of its own and no extra permission; the endpoint rules, the redaction of errors and the "key only to https" rule are unchanged.
 - **Proxy:** `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` of Claude Code's environment are honoured by the server (the plugin turns on Node's `NODE_USE_ENV_PROXY`, which needs Node 24.5 or later; set `NODE_USE_ENV_PROXY=0` before starting Claude Code to turn it off).
@@ -106,9 +82,9 @@ The `state`, instructions and options of every call go to the configured endpoin
 
 ## Errors
 
-Errors come back as a tool error (Claude reads it as an error result) whose text starts with the tool's name and a colon (for example `noul:` or `batch:`).
+Errors come back as a tool error (Claude reads it as an error result) whose text starts with `request:`; an error of one question also names it, `questions[<index>]: ...`.
 
-- No configuration (none of the three variables set): Haiku answers, calibrated toward Jev (its `noul` probability is stretched away from 0.5, a `score` is the mean level index of its probabilities, and its prompt asks for honest, uninflated estimates); the numbers remain estimates of a language model, not Jev's; `<tool>: fallback: <reason>` when it does not answer or its reply is invalid.
+- No configuration (none of the three variables set): Haiku answers, calibrated toward Jev (its `noul` probability is stretched away from 0.5, a `score` is the mean level index of its probabilities, and its prompt asks for honest, uninflated estimates); the numbers remain estimates of a language model, not Jev's; `request: fallback: <reason>` when it does not answer or its reply is invalid.
 - Invalid input, or a `JEV_URL` / `TYPESAFE_BASE_URL` that is not an `http(s)` URL (for `TYPESAFE_BASE_URL` also one with a query or fragment): no request is sent.
 - A state too large for System One or for the timeout, with `overflow` `error` (or after a second refusal in `truncate`): `state too large ...` with the numbers (see Large states).
 - HTTP 4xx/5xx: Haiku answers instead (see above); when it cannot either, `HTTP <status>` plus the API's reason (its `detail`, or its `error.message`) when there is one, then `; fallback: <why Haiku failed>` (or `; no time left for the Haiku fallback` when the timeout is used up).

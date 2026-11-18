@@ -1,7 +1,7 @@
 {
   "name": "jev-api",
-  "version": "0.6.0",
-  "description": "Registers the TypeSafe Jev System One question types noul, choice and score as tools, plus batch for several questions in one request; configured by TYPESAFE_API_KEY, TYPESAFE_BASE_URL or JEV_URL.",
+  "version": "0.7.0",
+  "description": "Lets Claude put yes/no, choice and score questions about a text to TypeSafe's Jev System One in one request.",
   "author": {
     "name": "Kwitsch"
   },
