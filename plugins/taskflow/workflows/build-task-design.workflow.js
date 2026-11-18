@@ -20,13 +20,10 @@
 //                           times.
 //   'error'               — { status, stage: 'args' | 'Design', error, draftPath? }
 //
-// Args: { TASK, EXPLORE_PATH, DRAFT_PATH, SKILL_DIR, SIZE?, RESUME?, USER_INPUT? }
+// Args: { TASK, EXPLORE_PATH, DRAFT_PATH, SIZE?, RESUME?, USER_INPUT? }
 //   TASK         — design task / work description
 //   EXPLORE_PATH — absolute path of the exploration file (read by the designer)
 //   DRAFT_PATH   — absolute path of the draft file (persisted between runs)
-//   SKILL_DIR     — absolute path of skills/build-task; the designer
-//                  and the design reviewer read their role files
-//                  (roles/designer.md, roles/design-reviewer.md) from there.
 //   SIZE         — optional; S | M | L | XL from build-task's size step; picks
 //                  the designer model (DESIGN_MODEL), default opus.
 //   RESUME       — false on the first run; true when restarting with answers
@@ -80,16 +77,15 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH", "SKILL_DIR"], { SIZE: "", RESUME: false, USER_INPUT: "" });
+const A = decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH"], { SIZE: "", RESUME: false, USER_INPUT: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { TASK, EXPLORE_PATH, DRAFT_PATH, SKILL_DIR, SIZE, USER_INPUT: RAW_USER_INPUT } = A;
+const { TASK, EXPLORE_PATH, DRAFT_PATH, SIZE, USER_INPUT: RAW_USER_INPUT } = A;
 const RESUME = A.RESUME === true || A.RESUME === "true"; // string args: "false" is truthy
 const USER_INPUT = typeof RAW_USER_INPUT === "string" ? RAW_USER_INPUT : RAW_USER_INPUT == null ? "" : JSON.stringify(RAW_USER_INPUT);
 for (const [k, v] of [["EXPLORE_PATH", EXPLORE_PATH], ["DRAFT_PATH", DRAFT_PATH]]) {
   if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
 }
 if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESUME=true requires USER_INPUT (the answers to the previously returned questions)" };
-if (typeof SKILL_DIR !== "string" || !SKILL_DIR.startsWith("/")) return { status: "error", stage: "args", error: "SKILL_DIR must be an absolute path" };
 
 // Tool availability is detected once in build-task/SKILL.md and threaded in
 // (.claude/rules/script-authoring.md §4); a hint is appended only when it was found.
@@ -109,14 +105,6 @@ const MODELS = { designReview: "sonnet" };
 const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };
 const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";
 let DESIGNER_MODEL = designerModel(SIZE);
-
-// Role files, read by the dispatched agents themselves (never inlined here).
-const ROLE = { designer: SKILL_DIR.replace(/\/$/, "") + "/roles/designer.md", reviewer: SKILL_DIR.replace(/\/$/, "") + "/roles/design-reviewer.md" };
-
-// Prepended to every prompt below — same wording as the rule baked into every
-// plugin agents/*.md file: these agents run headless inside a Workflow, so any
-// prose between tool calls is wasted tokens no one reads.
-const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
 
 const MAX_OPEN_QUESTIONS = 4; // AskUserQuestion limit of the orchestrator
 
@@ -181,7 +169,7 @@ phase("Design");
 log("Size " + (SIZE || "unset") + " → designer: " + DESIGNER_MODEL);
 
 const designerPrompt = (mode, extra) =>
-  `${NO_NARRATION}\n\nRead your role definition at ${ROLE.designer} first and follow it exactly.\n\n${mode}
+  `${mode}
 Task:
 ${TASK}
 
@@ -224,7 +212,7 @@ function hasContaminatedKeypoints(d) {
 // account/session without Fable access throws on dispatch rather than
 // returning null, so an XL task must not be stuck retrying 'fable'.
 async function runDesigner(mode, extra, label) {
-  const opts = (l) => ({ label: l, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL });
+  const opts = (l) => ({ label: l, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL, agentType: "taskflow:designer" });
   const run = async (l) => {
     try {
       return await agent(designerPrompt(mode, extra), opts(l));
@@ -247,7 +235,7 @@ async function runDesigner(mode, extra, label) {
   return d === null || hasContaminatedKeypoints(d) ? null : d;
 }
 
-const designReviewerPrompt = `${NO_NARRATION}\n\nRead your role definition at ${ROLE.reviewer} first and follow it exactly. You are read-only.\n\nDesign task:
+const designReviewerPrompt = `Design task:
 ${TASK}
 
 Draft to review: ${DRAFT_PATH}
@@ -257,7 +245,7 @@ that every file path, symbol and signature the draft relies on actually exists
 in the codebase, and flag any that do not as blocking.${gmHint("to check that those files, symbols and signatures exist", JSON.stringify(REPO))} Structured output only.`;
 
 async function reviewDesign(label) {
-  const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: MODELS.designReview };
+  const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: MODELS.designReview, agentType: "taskflow:design-reviewer" };
   let r = await agent(designReviewerPrompt, opts);
   if (r === null) r = await agent(designReviewerPrompt, { ...opts, label: label + ":retry" });
   if (r && !Array.isArray(r.findings)) r.findings = [];

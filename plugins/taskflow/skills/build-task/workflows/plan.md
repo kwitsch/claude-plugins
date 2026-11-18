@@ -26,8 +26,8 @@ literal — and submit the whole text via the Workflow tool's `script`
 parameter, without the tool-level `args` parameter. Any other
 `stage: 'args'` error means a malformed payload: fix the call.
 
-Role file: the planner is an inline agent (no plugin agent type); it reads its
-role definition by absolute path — `<SKILL_DIR>/roles/planner.md`. The plan
+Role agent: the planner is the plugin agent `taskflow:planner` (`agents/`,
+dispatched via `agentType`, model from the script). The plan
 checker is a fully inline agent.
 
 ## Parameters (`args` object)
@@ -36,13 +36,12 @@ checker is a fully inline agent.
 | :-------------------- | :------ | :------- | :----------------------------------------------------------------------------------------------------------------------------------- |
 | `SPEC_PATH`           | string  | yes      | Absolute path of the user-approved spec file (the spec script's `specPath`)                                                          |
 | `PLAN_PATH`           | string  | yes      | Absolute temp path where the planner writes the plan (session scratch, never in the repo)                                            |
-| `SKILL_DIR`           | string  | yes      | Absolute path of build-task's skill directory; the planner role file is read from its `roles/`                                       |
 | `SIZE`                | string  | no       | `''` (default). Task size `S` / `M` / `L` / `XL` from build-task's size step (case-insensitive); picks the planner model             |
 | `GRAPHMIND_AVAILABLE` | bool    | no       | Default `false`. `true` ⇒ the planner confirms paths/signatures via the graphmind MCP tools (`project` = `REPO_PATH`)                |
 | `REPO_PATH`           | string  | no       | Default `''`. Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**            |
 | `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the planner get a hint to use jev-api's `score` tool; they accept its answer only at `confidence >= 0.6` |
 
-Guards: missing required keys, a `SPEC_PATH`, `PLAN_PATH` or `SKILL_DIR` that
+Guards: missing required keys, a `SPEC_PATH` or `PLAN_PATH` that
 is not an absolute path, or `GRAPHMIND_AVAILABLE: true` with an empty or
 non-absolute `REPO_PATH` return `status: 'error', stage: 'args'` before any
 agent is dispatched.

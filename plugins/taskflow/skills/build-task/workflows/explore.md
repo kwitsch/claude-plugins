@@ -9,7 +9,6 @@ it passes the path on to the design script.
 
 **Primary:** `Workflow({ name: "taskflow:build-task-explore", args })`
 with ONE structured `args` object — the script reads it as the global `args`.
-`SKILL_DIR` is `<Skill dir>` (build-task SKILL.md, "Plugin context").
 The runtime may deliver the object as a JSON string; `decodeArgs` parses that
 transparently.
 

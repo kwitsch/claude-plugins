@@ -83,16 +83,12 @@ plugin context, or an unresolved literal `${CLAUDE_PLUGIN_ROOT}` token) →
 pass it through unchanged; shipper degrades to `mergeState: 'unknown'` and
 skips remediation (the pre-fix loop still runs).
 
-Skill dir: ${CLAUDE_SKILL_DIR}
-
-Capture the `Skill dir:` value above too: `SKILL_DIR` = `<Skill dir>`
-(absolute); the scripts read their role files from `<SKILL_DIR>/roles/`. The
-scripts themselves live in the plugin root `workflows/` directory as
+The scripts live in the plugin root `workflows/` directory as
 `build-task-explore`, `build-task-design`, `build-task-spec`,
 `build-task-plan`, `build-task-implement`, `build-task-review` and
-`build-task-ship` (`.workflow.js`). Same pre-injection substitution and the
-same rule as the plugin root above: no load-time shell injection, never the
-exclamation-backtick sequence.
+`build-task-ship` (`.workflow.js`); their role agents (`taskflow:designer`,
+`taskflow:planner`, …) live in the plugin's `agents/` and are dispatched by
+the scripts via `agentType` — no skill directory is threaded through.
 
 ## Session temp files
 
@@ -240,13 +236,13 @@ Every pipeline file is session-only, never a repository file:
       `Size: <X> (own reasoning: <reason>)`. No retry loop; sizing never
       fails the run. `SIZE` picks the designer model, the planner model and the review level.
    4. **Design.** Run the design script with args
-      `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
+      `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
       Then by `status`:
       - `user_input_required` → one `AskUserQuestion` call covering the
         returned `questions` (their `options` verbatim as choices; free text
         arrives via "Other"; use `whyItMatters` as the question context).
         Re-run the design script with `RESUME: true`, the **same**
-        `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR`, `SIZE`, `GRAPHMIND_AVAILABLE`
+        `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`, `GRAPHMIND_AVAILABLE`
         and `REPO_PATH`, and `USER_INPUT` = the answers as `[{id, answer}]` (a JSON value, never
         `[object Object]`). Repeat this bullet until `complete` or `error` —
         new genuine questions after a resume are expected, not a failure.
@@ -265,7 +261,7 @@ Every pipeline file is session-only, never a repository file:
    "Other"). "No" picked without detail → one clarifying `AskUserQuestion`
    round for what should change; never guess. With corrections in hand →
    re-run step 2.4 (design script) with `RESUME: true`, `USER_INPUT` = the
-   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR`, `SIZE`,
+   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`,
    `GRAPHMIND_AVAILABLE` and `REPO_PATH` (the script records the corrections as binding USER DECISIONs and
    rewrites the draft; handle its return as in step 2.4), then step 2.5 (spec
    script), then re-ask this step from the new keypoints. Explore and Size are
@@ -275,11 +271,11 @@ Every pipeline file is session-only, never a repository file:
    (invocation rules above), branch on `status`. Paths come from the temp
    directory above.
    1. **Plan.** Run the plan script with args
-      `{SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`
+      `{SPEC_PATH, PLAN_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`
       (`SIZE` and `JEV_AVAILABLE` from step 2.3, the graphmind flag from step 2.1). `complete` →
       keep `plannerModel`.
    2. **Implement.** Run the implement script with args
-      `{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
+      `{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
       (`SCRATCH_DIR` is the session-temp directory from "Session temp files"
       above, trailing slash included — implementers write their test-evidence
       files there for the per-task reviewer). `complete` → keep `tasks`,
@@ -294,7 +290,7 @@ Every pipeline file is session-only, never a repository file:
       (`$task_description` or a later message says so) — there is no ship arg
       for it; step 5 then reports "PR/MR skipped at the user's request".
       Otherwise run the ship script with args
-      `{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, SKILL_DIR, PLUGIN_ROOT, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`.
+      `{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`.
       It pushes, creates or updates the PR/MR and watches CI with bounded fix
       rounds; keep the returned `ship` object (url, CI outcome). Ship problems
       are reportable `ship.status` values, not errors.

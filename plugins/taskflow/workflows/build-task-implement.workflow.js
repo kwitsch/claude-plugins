@@ -22,15 +22,13 @@
 //   'error'    — { status, stage: 'args', error }
 //              | { status, stage: 'Implement', error, tasks, waves, results, minorFindings }
 //
-// Args: { PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR }
+// Args: { PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR }
 //   PLAN_PATH      — absolute path of the plan file (read by loader/implementers)
 //   IMPLEMENT_PATH — absolute path of the JSON result file this script writes
 //   BRANCH_NAME    — current work branch (`git branch --show-current`)
 //   SCRATCH_DIR    — absolute session-scratch directory, trailing slash
 //                    included; implementers write test-evidence-task-<id>.txt
 //                    there for the per-task reviewer to read back.
-//   SKILL_DIR      — absolute path of skills/build-task; the merger reads its
-//                    role file (roles/worktree-merger.md) from there.
 //
 // Invocation contract:
 //   - PRIMARY: the plugin workflow `build-task-implement` (by name, namespaced by the plugin, args)
@@ -79,10 +77,10 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["PLAN_PATH", "IMPLEMENT_PATH", "BRANCH_NAME", "SCRATCH_DIR", "SKILL_DIR"], {});
+const A = decodeArgs(["PLAN_PATH", "IMPLEMENT_PATH", "BRANCH_NAME", "SCRATCH_DIR"], {});
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR } = A;
-for (const [k, v] of [["PLAN_PATH", PLAN_PATH], ["IMPLEMENT_PATH", IMPLEMENT_PATH], ["SCRATCH_DIR", SCRATCH_DIR], ["SKILL_DIR", SKILL_DIR]]) {
+const { PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR } = A;
+for (const [k, v] of [["PLAN_PATH", PLAN_PATH], ["IMPLEMENT_PATH", IMPLEMENT_PATH], ["SCRATCH_DIR", SCRATCH_DIR]]) {
   if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
 }
 
@@ -111,7 +109,6 @@ const reviewModel = (t) => TASK_REVIEW_MODEL[t.complexity] || "haiku";
 const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");
 
 // Role file, read by the dispatched merger itself (never inlined here).
-const ROLE = { merger: SKILL_DIR.replace(/\/$/, "") + "/roles/worktree-merger.md" };
 
 // Prepended to every prompt below: these agents run headless inside a
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
@@ -355,7 +352,7 @@ no co-author trailers): ${JSON.stringify(findings)}
 Return: STATUS: done|blocked, commit hash, what changed.`;
 
 const mergerPrompt = (approved) =>
-  `${NO_NARRATION}\n\nRead your role definition at ${ROLE.merger} first and follow it exactly.\n\nMerge target branch: ${BRANCH_NAME}
+  `Merge target branch: ${BRANCH_NAME}
 Approved task branches — merge in exactly this order, one at a time:
 ${JSON.stringify(approved)}
 (each entry is {id, branch, worktreePath}). Procedure, cleanup order, conflict
@@ -438,7 +435,7 @@ for (let i = 0; i < waves.length; i++) {
   for (const r of waveResults) if (r && r.minor && r.minor.length) minorLedger.push({ id: r.id, minor: r.minor });
 
   if (isolated && approved.length) {
-    const mOpts = { label: "merge:wave" + (i + 1), phase: "Implement", schema: MERGE_RESULT, model: MODELS.merger };
+    const mOpts = { label: "merge:wave" + (i + 1), phase: "Implement", schema: MERGE_RESULT, model: MODELS.merger, agentType: "taskflow:worktree-merger" };
     let merge = await agent(mergerPrompt(approved), mOpts);
     if (merge === null) merge = await agent(mergerPrompt(approved), { ...mOpts, label: mOpts.label + ":retry" });
     if (merge === null) {

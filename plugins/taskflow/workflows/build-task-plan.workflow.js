@@ -11,11 +11,9 @@
 //   'complete' — { status, planPath, plannerModel }
 //   'error'    — { status, stage: 'args' | 'Plan', error, planPath?, plannerModel? }
 //
-// Args: { SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE?, GRAPHMIND_AVAILABLE?, REPO_PATH? }
+// Args: { SPEC_PATH, PLAN_PATH, SIZE?, GRAPHMIND_AVAILABLE?, REPO_PATH? }
 //   SPEC_PATH — absolute path of the user-approved spec file
 //   PLAN_PATH — absolute path the planner writes the plan to (session scratch)
-//   SKILL_DIR — absolute path of skills/build-task; the planner reads its role
-//               file (roles/planner.md) from there.
 //   SIZE      — optional; S | M | L | XL from build-task's size step; picks the
 //               planner model (PLAN_MODEL), default opus.
 //   GRAPHMIND_AVAILABLE — optional; true ⇒ the planner prompt tells it to confirm
@@ -70,10 +68,10 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "SKILL_DIR"], { SIZE: "", GRAPHMIND_AVAILABLE: false, REPO_PATH: "" });
+const A = decodeArgs(["SPEC_PATH", "PLAN_PATH"], { SIZE: "", GRAPHMIND_AVAILABLE: false, REPO_PATH: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH } = A;
-for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH], ["SKILL_DIR", SKILL_DIR]]) {
+const { SPEC_PATH, PLAN_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH } = A;
+for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH]]) {
   if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
 }
 // Availability is decided once in build-task/SKILL.md and threaded in
@@ -91,9 +89,6 @@ const MODELS = { planChecker: "sonnet" }; // coverage/consistency gate before Im
 const PLAN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };
 const plannerModel = (s) => PLAN_MODEL[String(s).toUpperCase()] || "opus";
 let PLANNER_MODEL = plannerModel(SIZE);
-
-// Role file, read by the dispatched planner itself (never inlined here).
-const ROLE = { planner: SKILL_DIR.replace(/\/$/, "") + "/roles/planner.md" };
 
 // Prepended to every prompt below: these agents run headless inside a
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
@@ -148,7 +143,7 @@ phase("Plan");
 log("Size " + (SIZE || "unset") + " → planner: " + PLANNER_MODEL);
 
 const plannerPrompt = (revision) =>
-  `${NO_NARRATION}\n\nRead your role definition at ${ROLE.planner} first and follow it exactly.\n\nSpec to plan: ${SPEC_PATH}
+  `Spec to plan: ${SPEC_PATH}
 Plan file to write (create/overwrite): ${PLAN_PATH}
 Explore the codebase as needed to confirm exact current file paths, existing
 signatures your Interfaces entries must match, and established patterns. Your
@@ -199,7 +194,7 @@ wave scheduling; 'minor' otherwise. Structured output only.`;
 // account/session without Fable access throws on dispatch rather than
 // returning null, so an XL task must not be stuck retrying 'fable'.
 async function callPlanner(prompt, label) {
-  const opts = () => ({ label, phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL });
+  const opts = () => ({ label, phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: "taskflow:planner" });
   try {
     return await agent(prompt, opts());
   } catch (e) {

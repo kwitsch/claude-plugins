@@ -15,16 +15,13 @@
 //   'error'    — { status, stage: 'args', error }
 //
 // Args: { SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH,
-//         BRANCH_NAME, SKILL_DIR, BASE_BRANCH?, PLUGIN_ROOT? }
+//         BRANCH_NAME, BASE_BRANCH?, PLUGIN_ROOT? }
 //   SPEC_PATH      — absolute path of the approved spec file (PR context)
 //   PLAN_PATH      — absolute path of the plan file (PR context)
 //   IMPLEMENT_PATH — absolute path of the implement result file (JSON)
 //   REVIEW_PATH    — absolute path of the review result file (JSON)
 //   PR_BODY_PATH   — absolute path the pr-author writes the PR/MR body to
 //   BRANCH_NAME    — current work branch (`git branch --show-current`)
-//   SKILL_DIR      — absolute path of skills/build-task; the four ship roles
-//                    read their role files (roles/pr-author.md, shipper.md,
-//                    ci-monitor.md, ci-fixer.md) from there.
 //   BASE_BRANCH    — branch the work branch was cut from (default 'main')
 //   PLUGIN_ROOT    — absolute plugin root (build-task passes its substituted
 //                    plugin root); used to build the ship-ensure-mergeable.sh
@@ -77,11 +74,11 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "IMPLEMENT_PATH", "REVIEW_PATH", "PR_BODY_PATH", "BRANCH_NAME", "SKILL_DIR"], { BASE_BRANCH: "main", PLUGIN_ROOT: "" });
+const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "IMPLEMENT_PATH", "REVIEW_PATH", "PR_BODY_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", PLUGIN_ROOT: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, SKILL_DIR } = A;
+const { SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME } = A;
 const BASE_BRANCH = A.BASE_BRANCH || "main"; // empty/null counts as missing
-for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH], ["IMPLEMENT_PATH", IMPLEMENT_PATH], ["REVIEW_PATH", REVIEW_PATH], ["PR_BODY_PATH", PR_BODY_PATH], ["SKILL_DIR", SKILL_DIR]]) {
+for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH], ["IMPLEMENT_PATH", IMPLEMENT_PATH], ["REVIEW_PATH", REVIEW_PATH], ["PR_BODY_PATH", PR_BODY_PATH]]) {
   if (typeof v !== "string" || !v.startsWith("/")) return { status: "error", stage: "args", error: k + " must be an absolute path" };
 }
 // An unresolved substitution token (e.g. build-task read its own SKILL.md as
@@ -113,15 +110,9 @@ const MODELS = {
   ciFixer: "sonnet", // diagnose + fix: judgment/coding, CI as the only safety net
 };
 
-// Role files, read by the dispatched agents themselves (never inlined here).
-const SKILL_ROOT = SKILL_DIR.replace(/\/$/, "");
-const ROLE = { prAuthor: SKILL_ROOT + "/roles/pr-author.md", shipper: SKILL_ROOT + "/roles/shipper.md", ciMonitor: SKILL_ROOT + "/roles/ci-monitor.md", ciFixer: SKILL_ROOT + "/roles/ci-fixer.md" };
-
-// Prepended to every prompt below: these agents run headless inside a
+// Prepended to the inline (non-agent) prompts below: these agents run headless inside a
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
 const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
-// Head of every role-backed prompt.
-const rolePrefix = (path) => NO_NARRATION + "\n\nRead your role definition at " + path + " first and follow it exactly.\n\n";
 
 // Shared tail for the PR-body prompts: the universal-format hook reformats
 // anything written through Write/Edit, so content that must reach disk
@@ -204,10 +195,9 @@ const filesCheck = await agent(
   { label: "result-files-check", phase: "Ship", schema: FILES_CHECK, model: MODELS.prAuthor },
 );
 const filesOk = !!(filesCheck && filesCheck.ok === true);
-const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor };
+const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor, agentType: "taskflow:pr-author" };
 let prText = !filesOk ? null : await agent(
-  rolePrefix(ROLE.prAuthor)
-    + "Write the PR/MR title and body for branch "
+  "Write the PR/MR title and body for branch "
     + BRANCH_NAME
     + " → "
     + BASE_BRANCH
@@ -230,8 +220,7 @@ let prText = !filesOk ? null : await agent(
 );
 if (prText === null && filesOk) {
   prText = await agent(
-    rolePrefix(ROLE.prAuthor)
-      + "Retry. Write the PR/MR title and body for branch "
+    "Retry. Write the PR/MR title and body for branch "
       + BRANCH_NAME
       + " → "
       + BASE_BRANCH
@@ -252,8 +241,7 @@ if (!prText) {
   ship = { status: "blocked", detail: filesOk ? "pr-author returned null twice" : "implement/review result file missing or empty" + (filesCheck && filesCheck.detail ? ": " + filesCheck.detail : "") };
 } else {
   const created = await agent(
-    rolePrefix(ROLE.shipper)
-      + "Ship branch "
+    "Ship branch "
       + BRANCH_NAME
       + " to base "
       + BASE_BRANCH
@@ -269,7 +257,7 @@ if (!prText) {
       + (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.sh" : "(none — skip the mergeability step and report mergeState 'unknown')")
       + "\n"
       + "Structured output only.",
-    { label: "ship", phase: "Ship", schema: SHIP_RESULT, model: MODELS.shipper },
+    { label: "ship", phase: "Ship", schema: SHIP_RESULT, model: MODELS.shipper, agentType: "taskflow:shipper" },
   );
   if (!created || created.status === "blocked") {
     ship = { status: "blocked", detail: created ? created.detail : "shipper returned null" };
@@ -279,8 +267,7 @@ if (!prText) {
     for (let round = 1; round <= MAX_CI_MONITOR_ROUNDS; round++) {
       ship.ci.monitorRounds = round;
       const ci = await agent(
-        rolePrefix(ROLE.ciMonitor)
-          + "Watch CI for branch "
+        "Watch CI for branch "
           + BRANCH_NAME
           + " (platform: "
           + created.platform
@@ -291,7 +278,7 @@ if (!prText) {
           + "definition."
           + jevHint
           + " Structured output only.",
-        { label: "ci-monitor:" + round, phase: "Ship", schema: CI_RESULT, model: MODELS.ciMonitor },
+        { label: "ci-monitor:" + round, phase: "Ship", schema: CI_RESULT, model: MODELS.ciMonitor, agentType: "taskflow:ci-monitor" },
       );
       if (!ci) {
         delete ship.ci.failedJobs; // superseded by a fix pushed after the last watch
@@ -306,8 +293,7 @@ if (!prText) {
       if (ship.ci.fixRounds >= MAX_CI_FIX_ROUNDS) break;
       ship.ci.fixRounds++;
       const fix = await agent(
-        rolePrefix(ROLE.ciFixer)
-          + "CI is red for branch "
+        "CI is red for branch "
           + BRANCH_NAME
           + " (platform: "
           + created.platform
@@ -322,7 +308,7 @@ if (!prText) {
           + jevHint
           + gmHint("to find the failing code and its callers", JSON.stringify(REPO))
           + "\nStructured output only.",
-        { label: "ci-fix:" + ship.ci.fixRounds, phase: "Ship", schema: CI_FIX_RESULT, model: MODELS.ciFixer },
+        { label: "ci-fix:" + ship.ci.fixRounds, phase: "Ship", schema: CI_FIX_RESULT, model: MODELS.ciFixer, agentType: "taskflow:ci-fixer" },
       );
       if (!fix || fix.status === "blocked") {
         ship.ci.fixDetail = fix ? fix.detail : "ci-fixer returned null";

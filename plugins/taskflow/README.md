@@ -40,7 +40,7 @@ The plugin-root `workflows/` directory holds one auto-discovered plugin workflow
 
 ## Agents
 
-Static role prompts (rules, lens catalog, verdict ladder), dispatched via `agentType` by build-task's review script and the `changes-review` workflow; models set in frontmatter.
+Static role prompts, dispatched via `agentType` by build-task's scripts and the `changes-review` workflow. The frontmatter `model` is a default; the scripts override it per run.
 
 | Agent             | Model  | Role                                                                             |
 | ----------------- | ------ | -------------------------------------------------------------------------------- |
@@ -48,18 +48,18 @@ Static role prompts (rules, lens catalog, verdict ladder), dispatched via `agent
 | `review-verifier` | sonnet | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.      |
 | `fix-applier`     | sonnet | Applies pre-verified review fixes by category, with a test-run safety gate.      |
 
-Every other role is a role file in `skills/build-task/roles/`, read by the scripts' inline agents (no frontmatter; the model comes from the script):
+The build-task roles are plugin agents too (the designer and planner model comes from the task size, the rest from the script):
 
-| Role file            | Model   | Role                                                                                                                                             |
-| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `designer.md`        | by size | Writes the design draft. `S` → sonnet, `M`/`L` → opus, `XL` → fable.                                                                             |
-| `design-reviewer.md` | sonnet  | Read-only design review and open-question validation.                                                                                            |
-| `planner.md`         | by size | Turns an approved spec into a dense, machine-executable implementation plan. Same size table as the designer.                                    |
-| `worktree-merger.md` | haiku   | Merges approved task branches into the work branch in order, worktree cleanup (multi-task waves only).                                           |
-| `pr-author.md`       | haiku   | Writes the PR/MR title and body from the implement and review result files and the repo template.                                                |
-| `shipper.md`         | haiku   | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR. |
-| `ci-monitor.md`      | haiku   | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                               |
-| `ci-fixer.md`        | sonnet  | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                           |
+| Agent             | Model   | Role                                                                                                                                             |
+| ----------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `designer`        | by size | Writes the design draft. `S` → sonnet, `M`/`L` → opus, `XL` → fable.                                                                             |
+| `design-reviewer` | sonnet  | Read-only design review and open-question validation.                                                                                            |
+| `planner`         | by size | Turns an approved spec into a dense, machine-executable implementation plan. Same size table as the designer.                                    |
+| `worktree-merger` | haiku   | Merges approved task branches into the work branch in order, worktree cleanup (multi-task waves only).                                           |
+| `pr-author`       | haiku   | Writes the PR/MR title and body from the implement and review result files and the repo template.                                                |
+| `shipper`         | haiku   | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR. |
+| `ci-monitor`      | haiku   | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                               |
+| `ci-fixer`        | sonnet  | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                           |
 
 ## Layout
 
@@ -77,18 +77,17 @@ taskflow/
 │   ├── build-task-review.workflow.js      # delivery pipeline 3/4
 │   └── build-task-ship.workflow.js        # delivery pipeline 4/4
 ├── agents/                                # auto-discovered (default location)
-│   ├── review-finder.md    ├── review-verifier.md  └── fix-applier.md
+│   ├── review-finder.md    ├── review-verifier.md  ├── fix-applier.md
+│   ├── designer.md         ├── design-reviewer.md  ├── planner.md
+│   ├── worktree-merger.md  ├── pr-author.md        ├── shipper.md
+│   └── ci-monitor.md       └── ci-fixer.md
 ├── bin/                                   # on PATH when the plugin is enabled
 │   └── ship-ensure-mergeable.sh           # Ship-phase PR/MR merge-state remediation
 └── skills/
     ├── build-task/
     │   ├── SKILL.md                       # orchestrator
-    │   ├── workflows/                     # one <name>.md usage reference per script
-    │   │   └── explore.md  design.md  spec.md  plan.md  implement.md  review.md  ship.md
-    │   └── roles/                         # role files read by the scripts' inline agents
-    │       ├── designer.md         ├── design-reviewer.md  ├── planner.md
-    │       ├── worktree-merger.md  ├── pr-author.md        ├── shipper.md
-    │       └── ci-monitor.md       └── ci-fixer.md
+    │   └── workflows/                     # one <name>.md usage reference per script
+    │       └── explore.md  design.md  spec.md  plan.md  implement.md  review.md  ship.md
     ├── dispatch-task/
     │   └── SKILL.md                       # background-session dispatch
     └── changes-audit/

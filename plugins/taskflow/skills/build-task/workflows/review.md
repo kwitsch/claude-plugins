@@ -31,8 +31,7 @@ plugin agents `taskflow:review-finder`, `taskflow:review-verifier` and
 `taskflow:fix-applier` (static role prompts in the plugin's `agents/`
 directory, addressed via `agentType`). An unknown type throws hard at
 dispatch, so both invocation paths require the taskflow plugin to be loaded.
-The scope, lean-review, synthesizer and scribe agents are fully inline. No
-role file is read: the script takes no `SKILL_DIR`.
+The scope, lean-review, synthesizer and scribe agents are fully inline.
 
 ## Parameters (`args` object)
 

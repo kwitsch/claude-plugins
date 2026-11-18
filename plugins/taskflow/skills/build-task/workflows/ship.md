@@ -26,10 +26,10 @@ literal — and submit the whole text via the Workflow tool's `script`
 parameter, without the tool-level `args` parameter. Any other
 `stage: 'args'` error means a malformed payload: fix the call.
 
-Role files: the four ship roles are inline agents (no plugin agent type);
-each reads its role definition by absolute path — `<SKILL_DIR>/roles/pr-author.md`,
-`<SKILL_DIR>/roles/shipper.md`, `<SKILL_DIR>/roles/ci-monitor.md` and
-`<SKILL_DIR>/roles/ci-fixer.md`.
+Role agents: the four ship roles are plugin agents (`taskflow:pr-author`,
+`taskflow:shipper`, `taskflow:ci-monitor`, `taskflow:ci-fixer`, `agents/`),
+dispatched via `agentType`; the script's `model` option overrides their
+frontmatter model.
 
 ## Parameters (`args` object)
 
@@ -41,7 +41,6 @@ each reads its role definition by absolute path — `<SKILL_DIR>/roles/pr-author
 | `REVIEW_PATH`         | string  | yes      | Absolute path of the review result file (the review script's `reviewPath`) — Read by the pr-author                                                                  |
 | `PR_BODY_PATH`        | string  | yes      | Absolute temp path the pr-author writes the PR/MR body to (`pr-body-<slug>.md`); the shipper reads it back                                                          |
 | `BRANCH_NAME`         | string  | yes      | Current work branch (`git branch --show-current`)                                                                                                                   |
-| `SKILL_DIR`           | string  | yes      | Absolute path of build-task's skill directory; the role files are read from its `roles/`                                                                            |
 | `GRAPHMIND_AVAILABLE` | boolean | no       | `false` (default). `true` ⇒ the ci-fixer get a hint to use the graphmind MCP tools (`project` as given). Requires a non-empty absolute `REPO_PATH`                  |
 | `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                         |
 | `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the ci-monitor and ci-fixer get a hint to use jev-api's `choice` tool; they accept its answer only at `confidence >= 0.6`               |
@@ -49,7 +48,7 @@ each reads its role definition by absolute path — `<SKILL_DIR>/roles/pr-author
 | `PLUGIN_ROOT`         | string  | no       | Default `''`. Absolute plugin root; builds the `bin/ship-ensure-mergeable.sh` path handed to the shipper. Empty or an unresolved `${…}` token → remediation skipped |
 
 Guards: missing required keys, or a `SPEC_PATH`, `PLAN_PATH`,
-`IMPLEMENT_PATH`, `REVIEW_PATH`, `PR_BODY_PATH` or `SKILL_DIR` that is not an
+`IMPLEMENT_PATH`, `REVIEW_PATH`, or `PR_BODY_PATH` that is not an
 absolute path return `status: 'error', stage: 'args'` before any agent is
 dispatched. There is no ship on/off arg: the script always ships when run.
 
