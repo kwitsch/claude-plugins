@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Plugins, Plugins reference, Plugin marketplaces, Plugin dependencies, Plugin hints),
-> verified 2026-11-06.
+> verified 2026-11-18.
 > Apply when creating, reviewing, or distributing a Claude Code plugin.
 > Hook events/schema, agent frontmatter, MCP server config, and settings keys are owned by
 > sibling refs (claude-code-hooks-reference.md, -agents-, -mcp-, -settings-); kept pointer-level here.
@@ -77,6 +77,7 @@ The manifest is optional (auto-discovery when absent; the plugin name then comes
 | `keywords`       | array   | No       | Short string keywords                                                                                                                                                                                                                                                                                                                                                                                 |
 | `metadata`       | object  | No       | version >= 2.1.222. Free-form object for the author's own data (catalog/entitlement fields, …); Claude Code never reads it. Non-object value is ignored with a `validate` warning. Earlier versions treat the key as unrecognized.                                                                                                                                                                    |
 | `defaultEnabled` | boolean | No       | version >= 2.1.154. `false` ships the plugin installed-but-disabled (user opts in). Defaults `true`. See [Default enablement](#default-enablement). Marketplace-entry `defaultEnabled` overrides this.                                                                                                                                                                                                |
+| `engines`        | object  | No       | version >= 2.1.323. Claude Code versions the plugin works on: semver range under the `claude-code` key (e.g. `"engines": { "claude-code": ">=2.1.400" }`). Omit to stay loadable on 2.0.15 through 2.1.75, which reject the manifest with an `Unrecognized key` error when it has the field.                                                                                                          |
 | `$schema`        | string  | No       | JSON Schema URL for editor autocomplete; ignored at load time.                                                                                                                                                                                                                                                                                                                                        |
 
 - Reserved-name check (`claude plugin validate` only; Claude Code still installs/loads; ignores case, any run of separators = one): ERROR if `name` starts `claude-`/`anthropic-`/`anthropics-`/`cc-plugin-`, is `claude`/`anthropic`/`anthropics`/`claude-code`/`claude-mods`, or puts `official` beside `claude`/`anthropic`; WARNING if `claude`/`anthropic`/`anthropics` is a whole word elsewhere (e.g. `mcp-for-claude`). `claude plugin init`/`tag` refuse an erroring name.
@@ -499,6 +500,7 @@ Array of entries; declare inline via `experimental.monitors` (array) or load fro
 - version >= 2.1.274: the background marketplace refresh re-clones directly on a failed remote check instead of `git pull` + move-aside-reclone.
 - version >= 2.1.281: `claude plugin validate` accepts the directory-listing fields (`icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl`, `termsOfServiceUrl`) without an `Unknown field` warning and checks MCP server entries (see [Unrecognized fields](#unrecognized-fields)).
 - version >= 2.1.283: `claude plugin validate` checks existence/containment of `outputStyles`, `lspServers`, `monitors`, and `themes` paths.
+- version >= 2.1.323: `engines` plugin.json field (Claude Code version range the plugin works on); earlier versions in the 2.0.15-2.1.75 range reject it as an unrecognized key.
 - version >= 2.1.288: LSP `requestTimeout` field (ms to wait for a server answer, default 60000); schema in `references/claude-code-plugins-lsp-reference.md`.
 - version >= 2.1.295: marketplace git-submodule fetch limited to submodules holding plugin files (see [Marketplace](#marketplace)).
 - Version lives ONLY in `.claude-plugin/plugin.json` (repo convention). Resolution order: plugin.json → marketplace entry → git SHA → archive digest → `unknown` (npm/non-git).
