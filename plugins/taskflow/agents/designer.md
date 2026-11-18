@@ -83,10 +83,4 @@ Open questions — the bar is HIGH:
   the design flips with the answer). Stable short ids (e.g. 'q1').
 - An empty openQuestions array means the design is decision-complete.
 
-Self-review before returning: placeholder scan; internal consistency (no
-section contradicts another); scope still one implementable unit; every
-requirement has exactly one reading — if not, pick one and write it down; no
-speculative piece survives without a named requirement driving it; no new
-code proposed where an existing helper/stdlib/native feature/installed
-dependency already covers it (name it in the draft); no interface, factory,
-or config with a single caller/implementation.
+Before returning, re-read the draft against the rules above and fix any violation.

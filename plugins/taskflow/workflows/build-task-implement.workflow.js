@@ -1,12 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// implement.workflow.js — build-task delivery pipeline, phase 2 of 4
+// build-task-implement.workflow.js — build-task delivery pipeline, phase 2 of 4
 //
 //   Load plan tasks → waves → per task: implement, review, at most one fix →
 //   per-wave merge (multi-task waves only) → persist the result file
 //
-// Reads the plan written by plan.workflow.js (PLAN_PATH) through one loader
+// Reads the plan written by build-task-plan.workflow.js (PLAN_PATH) through one loader
 // agent and writes the result to IMPLEMENT_PATH (read later by the pr-author
-// of ship.workflow.js). Wave rules:
+// of build-task-ship.workflow.js). Wave rules:
 //   - A wave with more than one task: every implementer runs in its own
 //     worktree (isolation:'worktree') and a SEPARATE merge agent merges the
 //     wave into the work branch (git merge --no-ff, task-id order).
@@ -130,7 +130,7 @@ const TASK_ITEM = {
     files: { type: "array", items: { type: "string" } },
     consumes: { type: "array", items: { type: "string" } },
     produces: { type: "array", items: { type: "string" } },
-    complexity: { enum: ["trivial", "standard", "complex"] },
+    complexity: { enum: ["trivial", "standard", "complex"], description: "copied verbatim from the plan task; selects the implementing model" },
   },
 };
 const PLAN_STATE = {

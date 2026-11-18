@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// spec.workflow.js — build-task design pipeline, phase 3 of 3
+// build-task-spec.workflow.js — build-task design pipeline, phase 3 of 3
 //
 //   Write spec → review gate → at most one fix round → recheck
 //
 // Transforms the decision-complete draft (DRAFT_PATH, written by
-// design.workflow.js) into the final spec at SPEC_PATH — the single input of
+// build-task-design.workflow.js) into the final spec at SPEC_PATH — the single input of
 // the delivery workflow. The spec writer and spec reviewer are inline agents
 // (they never had role files).
 //

@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// design.workflow.js — build-task design pipeline, phase 2 of 3
+// build-task-design.workflow.js — build-task design pipeline, phase 2 of 3
 //
 //   Draft design → review gate → at most one revision round → recheck
 //
-// Reads the exploration file written by explore.workflow.js (EXPLORE_PATH);
+// Reads the exploration file written by build-task-explore.workflow.js (EXPLORE_PATH);
 // the designer writes the draft to DRAFT_PATH itself (persistent state between
 // runs). Intent confirmation (human) stays OUTSIDE the workflow — workflow
 // scripts have no AskUserQuestion. Exits:
@@ -115,8 +115,8 @@ const OPEN_QUESTION = {
   properties: {
     id: { type: "string" },
     question: { type: "string" },
-    options: { type: "array", items: { type: "string" } }, // 2-4; free text arrives via "Other"
-    whyItMatters: { type: "string" }, // what in the design it changes
+    options: { type: "array", items: { type: "string" }, description: "2-4 concrete options; free text arrives via the Other option outside the workflow" },
+    whyItMatters: { type: "string", description: "what in the design changes with the answer" },
   },
 };
 const DESIGN_RESULT = {
@@ -125,8 +125,8 @@ const DESIGN_RESULT = {
   properties: {
     status: { enum: ["done", "blocked"] },
     detail: { type: "string" },
-    keypoints: { type: "string" }, // the Keypoints section verbatim
-    openQuestions: { type: "array", items: OPEN_QUESTION },
+    keypoints: { type: "string", description: "the draft's Keypoints section verbatim and nothing else; never put open questions in it" },
+    openQuestions: { type: "array", items: OPEN_QUESTION, description: "the open user-decidable questions, one object each; empty array when the design is decision-complete" },
   },
 };
 const DESIGN_REVIEW = {
