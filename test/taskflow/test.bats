@@ -283,8 +283,8 @@ followed_by() { # <head> <next> <file>
 
 @test "build-task scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types (review excepted), clean comments" {
   run bash -c "ls '$BT_WF'/*.workflow.js | wc -l | tr -d '[:space:]'"
-  [ "$output" = "6" ]
-  for n in explore design spec plan implement review; do
+  [ "$output" = "7" ]
+  for n in explore design spec plan implement review ship; do
     f="$BT_WF/$n.workflow.js"
     [ -s "$f" ]
     run rg_or_grep -F 'export const meta = {' "$f"
@@ -1403,4 +1403,49 @@ mm_git_fixture() {
     run rg_or_grep -F -- "$absent" "$F"
     [ "$status" -ne 0 ]
   done
+}
+
+@test "ship.workflow.js: result-file paths to pr-author, role files, CI loop bounds, reportable ship states" {
+  F="$BT_WF/ship.workflow.js"
+  [ -s "$F" ]
+  for p in 'name: "build-task-ship"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "IMPLEMENT_PATH", "REVIEW_PATH", "PR_BODY_PATH", "BRANCH_NAME", "SKILL_DIR"], { BASE_BRANCH: "main", PLUGIN_ROOT: "" })' 'must be an absolute path' 'A.PLUGIN_ROOT.includes("${")' 'prAuthor: "haiku"' 'shipper: "haiku"' 'ciMonitor: "haiku"' 'ciFixer: "sonnet"' '+ "/roles/pr-author.md"' '+ "/roles/shipper.md"' '+ "/roles/ci-monitor.md"' '+ "/roles/ci-fixer.md"' 'Read your role definition at ' 'rolePrefix(ROLE.prAuthor)' 'rolePrefix(ROLE.shipper)' 'rolePrefix(ROLE.ciMonitor)' 'rolePrefix(ROLE.ciFixer)' 'Pipeline result files (faithful source of truth — Read both): implement result ' '(tasks, waves, per-task minor findings), review result ' '(level, summary, applied/skipped, escalated open items, fix commits, lean-review findings)' 'PR_BODY_PATH' 'bodyPath: { type: "string" }' 'required: ["title", "bodyPath"]' 'mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] }' 'required: ["status"]' 'ship-ensure-mergeable.sh' 'created.mergeState' 'mergeState?' 'rerunId' 'rerunTried' 'const MAX_CI_MONITOR_ROUNDS = 6;' 'const MAX_CI_FIX_ROUNDS = 2;' 'NEVER the Write or Edit tool' 'return { status: "complete", ship };'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  for absent in 'agentType' 'agent definition' 'per your agent' 'pipelineSummary' 'SCRATCH_DIR' 'if (SHIP)' 'status: "skipped"' 'stage: "done"' 'classify' 'PINNED_OPUS' '<<<BODY' 'stage: "Ship"'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+  # word-boundary form: a plain -F "prText.body" would substring-match prText.bodyPath
+  run rg_or_grep -e 'prText\.body\b' "$F"
+  [ "$status" -ne 0 ]
+  # five role-backed dispatches (pr-author, its retry, shipper, ci-monitor, ci-fixer), all through rolePrefix
+  run bash -c "grep -c 'rolePrefix(ROLE\\.' '$F'"
+  [ "$output" = "5" ]
+}
+
+@test "ship.md documents the ship script contract, mergeState and the stage's hard limits" {
+  F="$BT_WF/ship.md"
+  [ -s "$F" ]
+  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`IMPLEMENT_PATH`' '`REVIEW_PATH`' '`PR_BODY_PATH`' '`BRANCH_NAME`' '`BASE_BRANCH`' '`SKILL_DIR`' '`PLUGIN_ROOT`' '`ship`' 'mergeState?' 'ship-ensure-mergeable' 'roles/pr-author.md' 'roles/shipper.md' 'roles/ci-monitor.md' 'roles/ci-fixer.md' '## Contents' '## Preconditions'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  run rg_or_grep -iF 'never merges the PR/MR itself' "$F"
+  [ "$status" -eq 0 ]
+  for absent in 'claude-opus-4-8' 'spec-driven-delivery' '`SHIP`' '`skipped`'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "no delivery script keeps the classifier, the opus pin, the built-in Explore agent or the plan-derived review level" {
+  for n in plan implement review ship; do
+    for absent in 'classifyPrompt' 'CLASSIFY_SCHEMA' 'label: "classify"' 'agentType: "Explore"' 'difficulty' 'PINNED_OPUS' 'tasks.length > 4'; do
+      run rg_or_grep -F -- "$absent" "$BT_WF/$n.workflow.js"
+      [ "$status" -ne 0 ]
+    done
+  done
+  run bash -c "grep -lE 'classify|PINNED_OPUS|tasks.length > 4' '$BT_WF'/*.workflow.js || true"
+  [ "$output" = "" ]
 }
