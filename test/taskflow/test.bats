@@ -340,18 +340,9 @@ AGENT_NAMES="review-finder review-verifier fix-applier"
   done
 }
 
-@test "all agent files are marked INTERNAL, not for direct delegation" {
+@test "all agent descriptions are exactly INTERNAL ONLY (no model auto-selection)" {
   for a in $AGENT_NAMES; do
-    run rg_or_grep -F 'INTERNAL' "$AGENTS_DIR/$a.md"
-    [ "$status" -eq 0 ]
-  done
-}
-
-@test "the three review agents name changes-audit as a second entry point and stay INTERNAL" {
-  for a in review-finder review-verifier fix-applier; do
-    run rg_or_grep -F 'INTERNAL' "$AGENTS_DIR/$a.md"
-    [ "$status" -eq 0 ]
-    run rg_or_grep -F 'changes-audit' "$AGENTS_DIR/$a.md"
+    run rg_or_grep -x 'description: INTERNAL ONLY' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
   done
 }

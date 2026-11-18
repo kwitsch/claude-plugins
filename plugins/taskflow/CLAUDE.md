@@ -16,7 +16,7 @@ The plugin ships these components:
   - Its `AGENTS` map carries only the finder/verifier subset (it never dispatches `fix-applier`).
   - Its review engine is a deliberate copy of `skills/build-task/workflows/review.workflow.js` (Workflow scripts cannot import each other); keep the two in step.
   - Renaming the plugin requires updating the `AGENTS` namespace prefix in both scripts.
-- `agents/*.md` — 3 static role prompts dispatched via `agentType: 'taskflow:<name>'`. INTERNAL: each agent's description says not to delegate to it directly. `review-finder`, `review-verifier` and `fix-applier` have two entry points (build-task's review script and `changes-review`/`changes-audit`); their frontmatter descriptions say so.
+- `agents/*.md` — 3 static role prompts dispatched via `agentType: 'taskflow:<name>'`. INTERNAL: each agent's frontmatter `description` is exactly `INTERNAL ONLY` so the model never selects one by description; callers always name them explicitly via `agentType`. `review-finder`, `review-verifier` and `fix-applier` have two callers (build-task's review script and `changes-review`/`changes-audit`).
 - `bin/ship-ensure-mergeable.sh` — Ship merge-state remediation: `shipper` runs it before the ci-monitor loop to auto-update a `behind` branch or auto-resolve `-X ours`-clean conflicts so CI actually starts. Zero-dep bash, `chmod +x`.
 
 ## Agent files and no-narration
