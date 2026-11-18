@@ -46,7 +46,10 @@ function loadCatalog() {
     for (const id of ids) {
       const entry = catalog[id];
       if (!entry || !Array.isArray(entry.files) || !Array.isArray(entry.commands)) throw new Error(`"${id}" needs "files" and "commands" arrays`);
-      if (entry.rootFiles !== undefined && (!Array.isArray(entry.rootFiles) || !entry.rootFiles.every((/** @type {unknown} */ f) => typeof f === "string"))) throw new Error(`"${id}" "rootFiles" must be an array of strings`);
+      if (
+        entry.rootFiles !== undefined
+        && (!Array.isArray(entry.rootFiles) || !entry.rootFiles.every((/** @type {unknown} */ f) => typeof f === "string"))
+      ) throw new Error(`"${id}" "rootFiles" must be an array of strings`);
       for (const f of entry.files) fileIndex.set(f, id);
       for (const c of entry.commands) commandIndex.set(c, id);
       for (const p of entry.rootFiles || []) rootFiles.push([p, id]);

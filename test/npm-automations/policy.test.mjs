@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+// eslint-disable-next-line max-len -- dprint (lineWidth max) keeps this import on one line
 import { collectChangedSpecs, countOccurrences, DEFAULT_MANAGER, detectPackageManager, dirname, INSTALL_TIMEOUT_MS, installArgsFor, isEnabled, isPackageJson, outcomeMessage, pathWithLocalBin, planInstall, reconstructOld, truncate } from "../../plugins/npm-automations/hooks/policy.mjs";
 
 test("isEnabled: fail-open, only a literal false (boolean or \"false\") disables", () => {
