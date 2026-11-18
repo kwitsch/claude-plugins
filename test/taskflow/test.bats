@@ -271,7 +271,7 @@ followed_by() { # <head> <next> <file>
   done
 }
 
-@test "build-task scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types (review excepted), clean comments" {
+@test "build-task scripts: meta, decodeArgs fail-fast, NO_NARRATION, no agent types in explore and spec, clean comments" {
   run bash -c "ls '$WORKFLOWS'/build-task-*.workflow.js | wc -l | tr -d '[:space:]'"
   [ "$output" = "7" ]
   for n in explore design spec plan implement review ship; do
