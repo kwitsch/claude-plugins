@@ -1,0 +1,8 @@
+{
+  "config": {
+    // line length: ~1200 findings repo-wide (the lint plugin's default also disables it)
+    "MD013": false,
+    // code spans with deliberate leading/trailing spaces, e.g. ` --keep <ids>`
+    "MD038": false
+  }
+}
