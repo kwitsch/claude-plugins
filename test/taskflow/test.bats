@@ -283,8 +283,8 @@ followed_by() { # <head> <next> <file>
 
 @test "build-task scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types (review excepted), clean comments" {
   run bash -c "ls '$BT_WF'/*.workflow.js | wc -l | tr -d '[:space:]'"
-  [ "$output" = "5" ]
-  for n in explore design spec plan implement; do
+  [ "$output" = "6" ]
+  for n in explore design spec plan implement review; do
     f="$BT_WF/$n.workflow.js"
     [ -s "$f" ]
     run rg_or_grep -F 'export const meta = {' "$f"
@@ -1359,6 +1359,47 @@ mm_git_fixture() {
     [ "$status" -eq 0 ]
   done
   for absent in 'claude-opus-4-8' 'spec-driven-delivery' 'even for single-task waves'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "review.workflow.js: LEVEL arg (never derived), three plugin agents, lean pass, apply, heredoc scribe, returns" {
+  F="$BT_WF/review.workflow.js"
+  [ -s "$F" ]
+  for p in 'name: "build-task-review"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "REVIEW_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", LEVEL: "high" })' 'if (LEVEL !== "high" && LEVEL !== "max")' 'must be an absolute path' 'phase("Review")' 'phase("Apply")' 'const SWEEP_MAX = 8;' 'const PONYTAIL_MAX = 8;' 'synthesizer: "opus"' 'finder: "sonnet"' 'verifier: "sonnet"' 'applier: "sonnet"' 'ponytailReviewer: "sonnet"' 'scribe: "haiku"' 'r.verdicts || []' 'Array.isArray(r.candidates)' 'Array.isArray(sweep.candidates)' 'PONYTAIL_REVIEW_SCHEMA' 'over-engineering ONLY' 'USER-APPROVED' 'verifyGroups(ponytailCandidates)' 'combinedLocs' 'findings.filter((f) => !f.reversesDecision)' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'expectedBytes + 1' 'NEVER the Write or Edit tool' 'error: "could not write REVIEW_PATH", level: LEVEL, applied: applyReport, escalatedToUser: escalated, ponytailReview' 'reviewPath: REVIEW_PATH' 'findingCount: findings.length' 'escalatedToUser: escalated'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  followed_by 'NO_NARRATION' '+ "\n\n' "$F"
+  for absent in 'tasks.length > 4' 'classify' 'PINNED_OPUS' 'difficulty' 'stage: "done"' 'phase("Ship")' 'SKILL_DIR.replace' 'role definition' 'pipelineSummary'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+  # exactly the three plugin review agents, each backed by an agents/*.md file
+  run bash -c "grep -oE 'taskflow:[a-z-]+' '$F' | sort -u | tr '\n' ' '"
+  [ "$output" = "taskflow:fix-applier taskflow:review-finder taskflow:review-verifier " ]
+  for name in review-finder review-verifier fix-applier; do
+    [ -f "$AGENTS_DIR/$name.md" ]
+  done
+  # report-only: the ponytail review is never routed to the fix applier
+  run bash -c "grep -n 'ponytail' '$F' | grep -i 'applier' || true"
+  [ "$output" = "" ]
+  # scope/no-diff errors carry no applied/escalatedToUser keys
+  run bash -c "grep -n 'error: \"scope agent returned no result\"\\|error: \"no changes found to review' '$F' | grep -c 'applied\\|escalatedToUser' || true"
+  [ "$output" = "0" ]
+}
+
+@test "review.md documents the review script contract, LEVEL and the lean review" {
+  F="$BT_WF/review.md"
+  [ -s "$F" ]
+  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`REVIEW_PATH`' '`BRANCH_NAME`' '`BASE_BRANCH`' '`LEVEL`' '`reviewPath`' '`findingCount`' '`applied`' '`escalatedToUser`' 'ponytailReview' 'taskflow:review-finder' 'taskflow:review-verifier' 'taskflow:fix-applier' 'findings.filter((f) => !f.reversesDecision)' '`S`/`M` → `high`, `L`/`XL` → `max`' '## Contents' '## Preconditions'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  run rg_or_grep -iF 'over-engineering' "$F"
+  [ "$status" -eq 0 ]
+  for absent in 'claude-opus-4-8' 'spec-driven-delivery' '>4 tasks'; do
     run rg_or_grep -F -- "$absent" "$F"
     [ "$status" -ne 0 ]
   done
