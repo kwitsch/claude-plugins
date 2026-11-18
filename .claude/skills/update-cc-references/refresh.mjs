@@ -24,7 +24,8 @@ const TARGETS = ["skills", "agents", "hooks", "commands", "mcp", "plugins", "mem
 const DATE_RE = /(verified:?\s+)(\d{4}-\d{2}-\d{2})/i;
 const VERSION_RE = /\bv?\d+\.\d+\.\d+\b/g;
 const HTML_RE = /^\s*<(!doctype|html)/i;
-const SOURCES = JSON.parse(readFileSync(new URL("./sources.json", import.meta.url), "utf8"));
+
+let SOURCES;
 
 class Exit extends Error {
   constructor(code, payload) {
@@ -59,9 +60,7 @@ function repoRoot() {
 }
 
 function today() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return new Date().toISOString().slice(0, 10);
 }
 
 function docPath(scratch, url) {
@@ -71,12 +70,11 @@ function docPath(scratch, url) {
 
 // true = clean markdown landed at `out`; false = curl failure, empty file or HTML fallback page.
 function fetchDoc(url, out) {
-  const r = run("curl", ["-sSL", "--fail", "-o", out, `${url}.md`]);
+  const r = run("curl", ["-sSL", "--fail", "--connect-timeout", "10", "--max-time", "60", "-o", out, `${url}.md`]);
   if (r.status !== 0) {
     process.stderr.write(`curl ${url}.md failed (exit ${r.status}) ${r.stderr}\n`);
     return false;
   }
-  if (!existsSync(out)) return false;
   const text = readFileSync(out, "utf8");
   if (text.length === 0) return false;
   if (HTML_RE.test(text.split("\n", 1)[0])) {
@@ -175,6 +173,11 @@ function isDateHunk(h) {
   return h.removed.length === 1 && h.added.length === 1 && DATE_RE.test(h.removed[0]) && mask(h.removed[0]) === mask(h.added[0]);
 }
 
+// Boundary-anchored: "2.1.18" must not match inside "2.1.180" or "12.1.18".
+function hasVersion(text, v) {
+  return new RegExp(`(?<![\\d.])v?${v.replace(/\./g, "\\.")}(?![\\d]|\\.\\d)`).test(text);
+}
+
 // Date hunks dropped; unsourced = adds an x.y.z found neither in its own removed lines nor in the docs;
 // changing = other hunks removing >= 1 line (ids h1..hN in diff order); additive = the rest (count).
 function analyze(plan, t) {
@@ -186,7 +189,7 @@ function analyze(plan, t) {
   for (const h of hunks) {
     if (isDateHunk(h)) continue;
     const carried = new Set(versions(h.removed));
-    const bad = [...new Set(versions(h.added))].filter((v) => !carried.has(v) && !docsText.includes(v));
+    const bad = [...new Set(versions(h.added))].filter((v) => !carried.has(v) && !hasVersion(docsText, v));
     if (bad.length) unsourced.push({ ...h, versions: bad });
     else if (h.removed.length) changing.push({ ...h, id: `h${changing.length + 1}` });
     else additive++;
@@ -225,8 +228,9 @@ function stampDate(file, date) {
       lines[i] = next;
       writeFileSync(file, lines.join("\n"));
     }
-    return;
+    return true;
   }
+  return false;
 }
 
 const autoReport = (hunks) => hunks.map((h) => ({ versions: h.versions, header: h.head }));
@@ -265,11 +269,12 @@ function cmdFinish(args) {
   revertHunks(plan, t, a.header, [...a.unsourced, ...drop]);
   const rest = diffFile(plan, t).hunks.filter((h) => !isDateHunk(h));
   let status;
+  let stamped = null;
   if (!rest.length) {
     git(["checkout", "HEAD", "--", t.file], plan.repoRoot);
     status = "unchanged";
   } else {
-    stampDate(t.file, plan.date);
+    stamped = stampDate(t.file, plan.date);
     status = "updated";
   }
   return {
@@ -279,10 +284,10 @@ function cmdFinish(args) {
     reverted: drop.map((h) => h.id),
     autoReverted: autoReport(a.unsourced),
     stale,
+    stamped,
   };
 }
 
-const CC_REFERENCE_DIR = "plugins/cc-knowledge/skills/cc-reference/";
 const PLUGIN_JSON = "plugins/cc-knowledge/.claude-plugin/plugin.json";
 const PIN_TEST = "test/cc-knowledge/test.bats";
 const SUFFIX_RE = / \(CC docs read: \d{4}-\d{2}-\d{2}\)$/;
@@ -303,7 +308,7 @@ function updatePin(file, from, to) {
 function cmdRelease(args) {
   const plan = loadPlan(args[0]);
   const root = plan.repoRoot;
-  const porcelain = git(["status", "--porcelain", "--", CC_REFERENCE_DIR], root);
+  const porcelain = git(["status", "--porcelain", "--", ...plan.targets.map((t) => t.file)], root);
   const files = porcelain.split("\n").filter(Boolean).map((l) => l.slice(3));
   if (!files.length) return { changed: false };
 
@@ -321,13 +326,15 @@ function cmdRelease(args) {
       base = null;
     }
   }
+  if (base === null) fail(3, `cannot read ${PLUGIN_JSON} from origin/main (fetch it first)`);
   // Bump once per unreleased branch: a version already ahead of origin/main stays.
-  const bumped = base === null || current === base;
+  const bumped = current === base;
   if (bumped) {
     const [a, b, c] = current.split(".").map(Number);
     obj.version = `${a}.${b}.${c + 1}`;
   }
   const suffix = ` (CC docs read: ${plan.date})`;
+  if (typeof obj.description !== "string") fail(1, `missing description in ${PLUGIN_JSON}`);
   obj.description = SUFFIX_RE.test(obj.description) ? obj.description.replace(SUFFIX_RE, () => suffix) : obj.description + suffix;
   const next = JSON.stringify(obj, null, 2) + "\n";
   if (next !== raw) writeFileSync(pluginPath, next);
@@ -338,6 +345,7 @@ function cmdRelease(args) {
 const COMMANDS = { plan: cmdPlan, gate: cmdGate, finish: cmdFinish, release: cmdRelease };
 
 function main() {
+  SOURCES = JSON.parse(readFileSync(new URL("./sources.json", import.meta.url), "utf8"));
   const [cmd, ...args] = process.argv.slice(2);
   const fn = Object.hasOwn(COMMANDS, cmd) ? COMMANDS[cmd] : null;
   if (!fn) fail(1, `usage: node refresh.mjs <${Object.keys(COMMANDS).join("|")}> ...`);

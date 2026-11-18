@@ -7,7 +7,7 @@ export const meta = {
 // Filled in by `refresh.mjs plan` (one literal replace on the next line); do not pass Workflow args.
 const PLAN = __PLAN__;
 
-// AuthorSchema with the gate output (changing, diffPath) merged in.
+// Author result: changelog plus the gate output (changing, diffPath) echoed back.
 const AuthorSchema = {
   type: "object",
   required: ["name", "changelog", "changing", "diffPath"],
@@ -41,6 +41,8 @@ const VerdictBatchSchema = {
   },
 };
 
+const sq = (v) => `'${String(v).replace(/'/g, "'\\''")}'`;
+
 const docLines = (t) => t.docs.map((d) => `- ${d.path} (fetched from ${d.url}.md)`);
 
 const authorPrompt = (t) =>
@@ -68,7 +70,7 @@ const authorPrompt = (t) =>
     `If you add, rename or remove a "## " heading, update the matching section index in ${PLAN.repoRoot}/plugins/cc-knowledge/skills/cc-reference/SKILL.md.`,
     "",
     "When done editing, run exactly this command via Bash and read its one-line JSON output:",
-    `node '${PLAN.script}' gate '${PLAN.scratch}' '${t.name}'`,
+    `node ${sq(PLAN.script)} gate ${sq(PLAN.scratch)} ${sq(t.name)}`,
     `Return {name, changelog, changing, diffPath}: name = "${t.name}"; changelog = a short delta summary grouped by the checklist categories ("no changes" if none); changing and diffPath copied verbatim from the gate output.`,
   ].join("\n");
 
@@ -113,6 +115,6 @@ const results = await pipeline(
 // A null result (thrown stage) still gets its finish command, without --keep: fail-closed revert.
 const commands = PLAN.targets.map((t, i) => {
   const keep = (results[i] && results[i].keep) || [];
-  return `node '${PLAN.script}' finish '${PLAN.scratch}' '${t.name}'` + (keep.length ? ` --keep ${keep.join(",")}` : "");
+  return `node ${sq(PLAN.script)} finish ${sq(PLAN.scratch)} ${sq(t.name)}` + (keep.length ? ` --keep ${keep.join(",")}` : "");
 });
 return { results, commands };
