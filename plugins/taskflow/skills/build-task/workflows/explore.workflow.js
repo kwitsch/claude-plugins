@@ -24,7 +24,7 @@
 //   'error'    — { status, stage: 'args' | 'Explore', error }
 //
 // Invocation contract:
-//   - PRIMARY: Workflow({ scriptPath: "<REFS_DIR>/explore.workflow.js", args })
+//   - PRIMARY: Workflow({ scriptPath: "<SKILL_DIR>/workflows/explore.workflow.js", args })
 //     with ONE JSON object as args — the script reads it as the global `args`.
 //   - FALLBACK (decodeArgs reports "args global is undefined"): prepend
 //     EXACTLY ONE line right after the meta block: `const args = { … }`

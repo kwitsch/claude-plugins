@@ -7,13 +7,13 @@ questions (`user_input_required`, resumable any number of times). graphmind is n
 
 ## Invocation
 
-**Primary:** `Workflow({scriptPath: "<REFS_DIR>/design.workflow.js", args})`
+**Primary:** `Workflow({scriptPath: "<SKILL_DIR>/workflows/design.workflow.js", args})`
 with ONE structured `args` object — the script reads it as the global `args`.
 The runtime may deliver the object as a JSON string; `decodeArgs` parses that
 transparently.
 
 **Fallback** — only when the return is `stage: 'args'` and its `error` starts
-with `args global is undefined`: Read `<REFS_DIR>/design.workflow.js`, prepend
+with `args global is undefined`: Read `<SKILL_DIR>/workflows/design.workflow.js`, prepend
 exactly one line after the `meta` block — `const args = { … }` as a JSON object
 literal — and submit the whole text via the Workflow tool's `script`
 parameter, without the tool-level `args` parameter. Any other
@@ -21,7 +21,7 @@ parameter, without the tool-level `args` parameter. Any other
 
 Role files: the designer and the design reviewer are inline agents (no plugin
 agent type); each reads its role definition by absolute path —
-`<REFS_DIR>/designer.md` and `<REFS_DIR>/design-reviewer.md`.
+`<SKILL_DIR>/roles/designer.md` and `<SKILL_DIR>/roles/design-reviewer.md`.
 
 ## Parameters (`args` object)
 
@@ -30,13 +30,13 @@ agent type); each reads its role definition by absolute path —
 | `TASK`         | string  | yes      | The design task / work description (same text as the explore call)                                                                               |
 | `EXPLORE_PATH` | string  | yes      | Absolute path of the exploration file the explore script wrote — same path on every resume                                                       |
 | `DRAFT_PATH`   | string  | yes      | Absolute path of the draft file — the single persistent state between runs; same path on every resume                                            |
-| `REFS_DIR`     | string  | yes      | Absolute path of build-task's `references/` directory; the role files are read from here                                                         |
+| `SKILL_DIR`    | string  | yes      | Absolute path of build-task's skill directory; the role files are read from its `roles/`                                                         |
 | `SIZE`         | string  | no       | `''` (default). Task size `S` / `M` / `L` / `XL` from build-task's size step (case-insensitive); picks the designer model                        |
 | `RESUME`       | boolean | no       | `false` (default) on the first run; `true` when restarting with an existing draft + answers                                                      |
 | `USER_INPUT`   | string  | no       | `''` (default) on the first run; on resume: the answers to the previously returned questions — BINDING. Recommended shape: JSON `[{id, answer}]` |
 
 Guards: missing required keys, `RESUME: true` without `USER_INPUT`, or a
-`REFS_DIR` that is not an absolute path return `status: 'error', stage: 'args'`
+`SKILL_DIR` that is not an absolute path return `status: 'error', stage: 'args'`
 before any agent is dispatched.
 
 ## Result (exit contract)
@@ -65,10 +65,10 @@ repeats until `complete` or `error`.
 
 ### `status: 'error'`
 
-| `stage`  | Meaning                                                                                                               | Action                                                               |
-| :------- | :-------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------- |
-| `args`   | Invocation malformed (missing keys, `RESUME` without `USER_INPUT`, relative `REFS_DIR`) or `args global is undefined` | Fallback for `args global is undefined`; otherwise fix the call      |
-| `Design` | Designer null/blocked twice, design reviewer null twice, or blocking findings survived the revision round             | Surface `error` + `draftPath` (draft preserved for inspection), stop |
+| `stage`  | Meaning                                                                                                                | Action                                                               |
+| :------- | :--------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------- |
+| `args`   | Invocation malformed (missing keys, `RESUME` without `USER_INPUT`, relative `SKILL_DIR`) or `args global is undefined` | Fallback for `args global is undefined`; otherwise fix the call      |
+| `Design` | Designer null/blocked twice, design reviewer null twice, or blocking findings survived the revision round              | Surface `error` + `draftPath` (draft preserved for inspection), stop |
 
 ## Behavior notes
 

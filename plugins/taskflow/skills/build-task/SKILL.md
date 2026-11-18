@@ -15,20 +15,20 @@ allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "As
 Runs the feature-development pipeline (Design → Intent confirmation → Plan →
 Implement → Review) for `$task_description`, with the heavy phases executed by
 Workflow scripts. The design pipeline is three single-phase scripts shipped in
-this skill's `references/` directory — explore, design, spec — run by
+this skill's `workflows/` directory — explore, design, spec — run by
 `scriptPath` (they are not plugin workflows). Delivery is the plugin's
 `spec-driven-delivery` workflow (auto-discovered in the plugin's `workflows/`
 directory, run as `/taskflow:spec-driven-delivery`). One usage reference per
 script — parameters, exit contract, behavior — lives beside this file; read
 the relevant one BEFORE each invocation:
 
-- [references/explore.md](references/explore.md) — scout → read-only
+- [workflows/explore.md](workflows/explore.md) — scout → read-only
   explorers → exploration reports written to `EXPLORE_PATH`. Exits `complete`
   (path + explored subsystems) or `error`.
-- [references/design.md](references/design.md) — Draft design → Design review
+- [workflows/design.md](workflows/design.md) — Draft design → Design review
   → one revision round. Exits `complete` (draft decision-complete) or
   `user_input_required` (draft persisted + open user questions, resumable).
-- [references/spec.md](references/spec.md) — Write spec → Spec review → one
+- [workflows/spec.md](workflows/spec.md) — Write spec → Spec review → one
   fix round. Exits `complete` (spec written) or `error`.
 - [references/spec-driven-delivery.md](references/spec-driven-delivery.md)
   — Plan → wave-parallel Implement (worktree/merge rules per wave size are in
@@ -79,9 +79,9 @@ skips remediation (the pre-fix loop still runs).
 
 Skill dir: ${CLAUDE_SKILL_DIR}
 
-Capture the `Skill dir:` value above too: `REFS_DIR` = `<Skill dir>/references`
-(absolute). The design-pipeline scripts are `<REFS_DIR>/explore.workflow.js`,
-`<REFS_DIR>/design.workflow.js` and `<REFS_DIR>/spec.workflow.js`. Same
+Capture the `Skill dir:` value above too: `SKILL_DIR` = `<Skill dir>`
+(absolute). The design-pipeline scripts are `<SKILL_DIR>/workflows/explore.workflow.js`,
+`<SKILL_DIR>/workflows/design.workflow.js` and `<SKILL_DIR>/workflows/spec.workflow.js`. Same
 pre-injection substitution and the same rule as the plugin root above: no
 load-time shell injection, never the exclamation-backtick sequence.
 
@@ -117,7 +117,7 @@ Every pipeline file is session-only, never a repository file:
    This skill deliberately has **no Agent-engine fallback** — the workflows
    are the engine.
 2. **Design pipeline — invoke by `scriptPath` with `args`:**
-   `Workflow({scriptPath: "<REFS_DIR>/<name>.workflow.js", args})` with
+   `Workflow({scriptPath: "<SKILL_DIR>/workflows/<name>.workflow.js", args})` with
    `<name>` = `explore`, `design` or `spec`, and ONE structured `args` object
    — the script reads it as the `args` global; keys and return contract are in
    the per-script reference files linked above. Structured data, so task text
@@ -135,7 +135,7 @@ Every pipeline file is session-only, never a repository file:
 4. **Fallback — ad-hoc script with prepended args:** when a return is
    `stage: 'args'` and its `error` starts with `args global is undefined`, or
    the named delivery workflow is not registered in this install: Read the
-   script — `<REFS_DIR>/<name>.workflow.js`, or
+   script — `<SKILL_DIR>/workflows/<name>.workflow.js`, or
    `${CLAUDE_PLUGIN_ROOT}/workflows/spec-driven-delivery.workflow.js` for
    delivery — prepend exactly one line after the `meta` block —
    `const args = { … }` as a JSON object literal — and send the whole text via
@@ -231,13 +231,13 @@ Every pipeline file is session-only, never a repository file:
       `Size: <X> (own reasoning: <reason>)`. No retry loop; sizing never
       fails the run. `SIZE` only picks the designer model.
    4. **Design.** Run the design script with args
-      `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, REFS_DIR, SIZE, RESUME: false, USER_INPUT: ''}`.
+      `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SKILL_DIR, SIZE, RESUME: false, USER_INPUT: ''}`.
       Then by `status`:
       - `user_input_required` → one `AskUserQuestion` call covering the
         returned `questions` (their `options` verbatim as choices; free text
         arrives via "Other"; use `whyItMatters` as the question context).
         Re-run the design script with `RESUME: true`, the **same**
-        `EXPLORE_PATH`, `DRAFT_PATH`, `REFS_DIR` and `SIZE`, and
+        `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR` and `SIZE`, and
         `USER_INPUT` = the answers as `[{id, answer}]` (a JSON value, never
         `[object Object]`). Repeat this bullet until `complete` or `error` —
         new genuine questions after a resume are expected, not a failure.
@@ -256,7 +256,7 @@ Every pipeline file is session-only, never a repository file:
    "Other"). "No" picked without detail → one clarifying `AskUserQuestion`
    round for what should change; never guess. With corrections in hand →
    re-run step 2.4 (design script) with `RESUME: true`, `USER_INPUT` = the
-   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `REFS_DIR` and
+   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR` and
    `SIZE` (the script records the corrections as binding USER DECISIONs and
    rewrites the draft; handle its return as in step 2.4), then step 2.5 (spec
    script), then re-ask this step from the new keypoints. Explore and Size are

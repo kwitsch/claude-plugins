@@ -5,8 +5,8 @@
 The plugin ships these components:
 
 - `skills/build-task/` — inline orchestrator skill. Creates a `feature/<slug>` worktree and calls `EnterWorktree`, and owns `AskUserQuestion` checkpoints, owns the design pipeline, sizes the task, invokes the delivery workflow by name, applies escalated review fixes.
-  - Design pipeline: `references/explore.workflow.js`, `references/design.workflow.js` and `references/spec.workflow.js`, run via `Workflow({scriptPath, args})` (not auto-discovered, no `/taskflow:` command). Each writes one session-temp file (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`) and returns only its path plus small status fields; the skill never reads those files.
-  - Role files `references/designer.md` and `references/design-reviewer.md` — read by the design script's inline agents from the absolute `REFS_DIR` arg. No frontmatter; not plugin agents.
+  - Design pipeline: `workflows/explore.workflow.js`, `workflows/design.workflow.js` and `workflows/spec.workflow.js`, run via `Workflow({scriptPath, args})` (not auto-discovered, no `/taskflow:` command). Each writes one session-temp file (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`) and returns only its path plus small status fields; the skill never reads those files.
+  - Role files `roles/designer.md` and `roles/design-reviewer.md` — read by the design script's inline agents from the absolute `SKILL_DIR` arg. No frontmatter; not plugin agents.
   - Size (`S`/`M`/`L`/`XL`, after Explore, once per invocation): jev-api's `score` tool when it loads and answers with `confidence >= 0.6`, otherwise the skill's own reasoning. It only picks the designer model.
 - `skills/dispatch-task/` — one-step skill that dispatches `build-task` into a worktree-isolated background session. Self-contained by requirement: no reference to any other plugin, its own copy of the `claude --worktree … --bg` mechanics. Design notes: `skills/dispatch-task/CLAUDE.md`.
 - `skills/changes-audit/` — standalone audit skill. Runs the `changes-review` workflow over the branch diff, then owns apply: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies the picks — both by re-dispatching `fix-applier` (findings carry no patch text). Model-invocable, runs inline (depth 0). No PR/merge step.
@@ -21,7 +21,7 @@ The plugin ships these components:
 - Every `agents/*.md` starts, right after frontmatter, with the identical verbatim "No narrative text between tool calls" paragraph. Copy it from an existing agent into any new one.
 - Why: agents run headless inside a Workflow, so prose between tool calls is wasted tokens; only the final message (report or schema-forced output) is consumed.
 - Inline workflow prompts carry the same rule as a `NO_NARRATION` prefix — see `workflows/CLAUDE.md`.
-- The build-task role files (`skills/build-task/references/designer.md`, `design-reviewer.md`) have no frontmatter and no such paragraph: the inline prompts that point at them already start with `NO_NARRATION`. The design reviewer's read-only guarantee is a prompt + role-file instruction, not a tool allowlist.
+- The build-task role files (`skills/build-task/roles/designer.md`, `design-reviewer.md`) have no frontmatter and no such paragraph: the inline prompts that point at them already start with `NO_NARRATION`. The design reviewer's read-only guarantee is a prompt + role-file instruction, not a tool allowlist.
 
 ## userConfig
 
@@ -33,7 +33,7 @@ No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.c
 ## Generated pipeline artifacts are always English
 
 - The pipeline files (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`) written by the explore scribe, designer, spec writer and planner are always English, regardless of `$task_description`'s language.
-- Enforced by an explicit instruction in `skills/build-task/references/designer.md`, `agents/planner.md` and the inline spec-writer prompt in `skills/build-task/references/spec.workflow.js` (the spec writer has no role file). The explore scribe (`skills/build-task/references/explore.workflow.js`) adds no prose of its own: it writes the explorer reports verbatim.
+- Enforced by an explicit instruction in `skills/build-task/roles/designer.md`, `agents/planner.md` and the inline spec-writer prompt in `skills/build-task/workflows/spec.workflow.js` (the spec writer has no role file). The explore scribe (`skills/build-task/workflows/explore.workflow.js`) adds no prose of its own: it writes the explorer reports verbatim.
 - Why: only other pipeline agents read these files, so a consistent working language beats mirroring the request.
 - Does not extend to the final human-facing report (`SKILL.md` step 5) or to reviewer finding text.
 
@@ -46,8 +46,8 @@ No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.c
 
 ## Scoped notes elsewhere
 
-- Model assignment (incl. the size-driven designer model), `NO_NARRATION` on inline prompts, the designer's `keypoints`/`openQuestions` separation, the `*.workflow.js` eslint exclusion (also covers `skills/build-task/references/*.workflow.js`): `workflows/CLAUDE.md`.
-- Design-pipeline script contracts: `skills/build-task/references/explore.md`, `design.md`, `spec.md`.
+- Model assignment (incl. the size-driven designer model), `NO_NARRATION` on inline prompts, the designer's `keypoints`/`openQuestions` separation, the `*.workflow.js` eslint exclusion (also covers `skills/build-task/workflows/*.workflow.js`): `workflows/CLAUDE.md`.
+- Design-pipeline script contracts: `skills/build-task/workflows/explore.md`, `design.md`, `spec.md`.
 - `dispatch-task` design decisions, `worktree.baseRef`, why the payload passes `--skip-branch-check`: `skills/dispatch-task/CLAUDE.md`.
 - SKILL.md plugin-root capture and `!`-injection rules: `.claude/rules/taskflow-skill-plugin-root-and-injection.md`.
 

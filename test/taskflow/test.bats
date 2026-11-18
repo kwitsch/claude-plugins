@@ -10,6 +10,8 @@ setup() {
   DISPATCH="$PLUGIN/skills/dispatch-task"
   CHANGES_AUDIT="$PLUGIN/skills/changes-audit"
   REFS="$SKILL/references"
+  BT_WF="$SKILL/workflows"
+  BT_ROLES="$SKILL/roles"
   AGENTS_DIR="$PLUGIN/agents"
   WORKFLOWS="$PLUGIN/workflows"
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
@@ -110,21 +112,21 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "build-task SKILL.md references all four usage reference files" {
-  for f in explore.md design.md spec.md spec-driven-delivery.md; do
-    run rg_or_grep -F "references/$f" "$SKILL/SKILL.md"
+  for f in workflows/explore.md workflows/design.md workflows/spec.md references/spec-driven-delivery.md; do
+    run rg_or_grep -F "$f" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
 }
 
 @test "all four usage reference files exist and are non-empty; design-to-spec.md is gone" {
-  for f in explore.md design.md spec.md spec-driven-delivery.md; do
-    [ -s "$REFS/$f" ]
+  for f in workflows/explore.md workflows/design.md workflows/spec.md references/spec-driven-delivery.md; do
+    [ -s "$SKILL/$f" ]
   done
   [ ! -e "$REFS/design-to-spec.md" ]
 }
 
 @test "build-task SKILL.md runs the design pipeline by scriptPath and sizes the task (jev-api or own reasoning)" {
-  for p in 'Skill dir: ${CLAUDE_SKILL_DIR}' 'REFS_DIR' 'scriptPath' 'explore.workflow.js' 'design.workflow.js' 'spec.workflow.js' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'taskflow:spec-driven-delivery'; do
+  for p in 'Skill dir: ${CLAUDE_SKILL_DIR}' 'SKILL_DIR' 'scriptPath' 'explore.workflow.js' 'design.workflow.js' 'spec.workflow.js' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'taskflow:spec-driven-delivery'; do
     run rg_or_grep -F -- "$p" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
@@ -138,26 +140,26 @@ followed_by() { # <head> <next> <file>
 
 @test "build-task design-pipeline usage references exist and document their contracts" {
   for f in explore.md design.md spec.md; do
-    [ -s "$REFS/$f" ]
+    [ -s "$BT_WF/$f" ]
     for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'"; do
-      run rg_or_grep -F -- "$p" "$REFS/$f"
+      run rg_or_grep -F -- "$p" "$BT_WF/$f"
       [ "$status" -eq 0 ]
     done
-    run rg_or_grep -F 'claude-opus-4-8' "$REFS/$f"
+    run rg_or_grep -F 'claude-opus-4-8' "$BT_WF/$f"
     [ "$status" -ne 0 ]
-    run rg_or_grep -F 'design-to-spec' "$REFS/$f"
+    run rg_or_grep -F 'design-to-spec' "$BT_WF/$f"
     [ "$status" -ne 0 ]
   done
   for p in '`TASK`' '`EXPLORE_PATH`' '`GRAPHMIND_AVAILABLE`' '`REPO_PATH`' '`explorePath`' '`subsystems`' 'haiku'; do
-    run rg_or_grep -F -- "$p" "$REFS/explore.md"
+    run rg_or_grep -F -- "$p" "$BT_WF/explore.md"
     [ "$status" -eq 0 ]
   done
-  for p in '`EXPLORE_PATH`' '`DRAFT_PATH`' '`REFS_DIR`' '`SIZE`' '`RESUME`' '`USER_INPUT`' '`user_input_required`' '`minorFindings`' 'fable' 'graphmind is not used in this phase; `GRAPHMIND_AVAILABLE` and `REPO_PATH` are Explore-only'; do
-    run rg_or_grep -F -- "$p" "$REFS/design.md"
+  for p in '`EXPLORE_PATH`' '`DRAFT_PATH`' '`SKILL_DIR`' '`SIZE`' '`RESUME`' '`USER_INPUT`' '`user_input_required`' '`minorFindings`' 'fable' 'graphmind is not used in this phase; `GRAPHMIND_AVAILABLE` and `REPO_PATH` are Explore-only'; do
+    run rg_or_grep -F -- "$p" "$BT_WF/design.md"
     [ "$status" -eq 0 ]
   done
   for p in '`DRAFT_PATH`' '`SPEC_PATH`' '`specPath`' '`specReviewed`' '`minorFindings`'; do
-    run rg_or_grep -F -- "$p" "$REFS/spec.md"
+    run rg_or_grep -F -- "$p" "$BT_WF/spec.md"
     [ "$status" -eq 0 ]
   done
 }
@@ -225,10 +227,10 @@ followed_by() { # <head> <next> <file>
   done
 }
 
-# --- build-task design-pipeline scripts (skills/build-task/references/*.workflow.js) ---
+# --- build-task design-pipeline scripts (skills/build-task/workflows/*.workflow.js) ---
 
 @test "explore.workflow.js: meta, args guard, NO_NARRATION on every prompt, graphmind path, scribe" {
-  F="$REFS/explore.workflow.js"
+  F="$BT_WF/explore.workflow.js"
   [ -s "$F" ]
   for p in 'export const meta = {' 'name: "build-task-explore"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH"], { GRAPHMIND_AVAILABLE: false, REPO_PATH: "" })' 'const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";' 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'seenProposedNames' 'explorer: "haiku"' 'scribe: "haiku"' 'required: ["subsystems"]' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' '## Recorded project knowledge (graphmind memory)' 'scribePrompt = `${NO_NARRATION}' '<<<BEGIN>>>' 'label: "scribe:retry"' 'scribe could not write EXPLORE_PATH' 'explorePath: EXPLORE_PATH'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -247,14 +249,14 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "build-task design-pipeline scripts parse as async function bodies" {
-  run node -e 'const fs=require("fs");for(const f of process.argv.slice(1)){new (Object.getPrototypeOf(async function(){}).constructor)(fs.readFileSync(f,"utf8").replace(/^export /m,""))}' "$REFS"/*.workflow.js
+  run node -e 'const fs=require("fs");for(const f of process.argv.slice(1)){new (Object.getPrototypeOf(async function(){}).constructor)(fs.readFileSync(f,"utf8").replace(/^export /m,""))}' "$BT_WF"/*.workflow.js
   [ "$status" -eq 0 ]
 }
 
 @test "design.workflow.js: args guards, SIZE-keyed designer model, role files by absolute path, inline prompts" {
-  F="$REFS/design.workflow.js"
+  F="$BT_WF/design.workflow.js"
   [ -s "$F" ]
-  for p in 'export const meta = {' 'name: "build-task-design"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH", "REFS_DIR"], { SIZE: "", RESUME: false, USER_INPUT: "" })' 'RESUME=true requires USER_INPUT' 'REFS_DIR must be an absolute path' 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' 'let DESIGNER_MODEL = designerModel(SIZE);' 'model: DESIGNER_MODEL' 'designReview: "sonnet"' 'if (DESIGNER_MODEL !== "fable") throw e;' 'DESIGNER_MODEL = "opus";' 'function hasContaminatedKeypoints' 'if (d === null || hasContaminatedKeypoints(d))' 'never embedded as text/tags' '+ "/designer.md"' '+ "/design-reviewer.md"' 'Read your role definition at ${ROLE.designer} first and follow it exactly.' 'designReviewerPrompt = `${NO_NARRATION}\n\nRead your role definition at ${ROLE.reviewer} first and follow it exactly. You are read-only.' 'Read the exploration file at ${EXPLORE_PATH} before designing' 'per your role' 'Apply your full checklist (role definition)' 'status: "user_input_required"' 'Re-run this workflow with RESUME=true, the same DRAFT_PATH and EXPLORE_PATH, and the answers as USER_INPUT (recommended: JSON [{id, answer}]).' 'minorFindings: (review.findings || []).filter((f) => f.severity === "minor")'; do
+  for p in 'export const meta = {' 'name: "build-task-design"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH", "SKILL_DIR"], { SIZE: "", RESUME: false, USER_INPUT: "" })' 'RESUME=true requires USER_INPUT' 'SKILL_DIR must be an absolute path' 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' 'let DESIGNER_MODEL = designerModel(SIZE);' 'model: DESIGNER_MODEL' 'designReview: "sonnet"' 'if (DESIGNER_MODEL !== "fable") throw e;' 'DESIGNER_MODEL = "opus";' 'function hasContaminatedKeypoints' 'if (d === null || hasContaminatedKeypoints(d))' 'never embedded as text/tags' '+ "/roles/designer.md"' '+ "/roles/design-reviewer.md"' 'Read your role definition at ${ROLE.designer} first and follow it exactly.' 'designReviewerPrompt = `${NO_NARRATION}\n\nRead your role definition at ${ROLE.reviewer} first and follow it exactly. You are read-only.' 'Read the exploration file at ${EXPLORE_PATH} before designing' 'per your role' 'Apply your full checklist (role definition)' 'status: "user_input_required"' 'Re-run this workflow with RESUME=true, the same DRAFT_PATH and EXPLORE_PATH, and the answers as USER_INPUT (recommended: JSON [{id, answer}]).' 'minorFindings: (review.findings || []).filter((f) => f.severity === "minor")'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -266,7 +268,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "spec.workflow.js: inline spec writer/reviewer, English, lean carry-forward, specReviewed" {
-  F="$REFS/spec.workflow.js"
+  F="$BT_WF/spec.workflow.js"
   [ -s "$F" ]
   for p in 'export const meta = {' 'name: "build-task-spec"' 'function decodeArgs' 'decodeArgs(["DRAFT_PATH", "SPEC_PATH"], {})' 'specWriter: "sonnet"' 'specReview: "sonnet"' 'specReviewerPrompt = `${NO_NARRATION}' 'function reviewSpec' 'function writeSpec' 'specReviewed: specCheck != null' 'lean/YAGNI decisions forward' 'English' 'specPath: SPEC_PATH'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -280,10 +282,10 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "build-task design-pipeline scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types, clean comments" {
-  run bash -c "ls '$REFS'/*.workflow.js | wc -l | tr -d '[:space:]'"
+  run bash -c "ls '$BT_WF'/*.workflow.js | wc -l | tr -d '[:space:]'"
   [ "$output" = "3" ]
   for n in explore design spec; do
-    f="$REFS/$n.workflow.js"
+    f="$BT_WF/$n.workflow.js"
     [ -s "$f" ]
     run rg_or_grep -F 'export const meta = {' "$f"
     [ "$status" -eq 0 ]
@@ -316,7 +318,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "designer role file and planner agent require English output regardless of input language" {
-  run rg_or_grep -iF 'English' "$REFS/designer.md"
+  run rg_or_grep -iF 'English' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -iF 'English' "$AGENTS_DIR/planner.md"
   [ "$status" -eq 0 ]
@@ -458,9 +460,9 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 }
 
 @test "the designer prompt and role file both disambiguate openQuestions as its own structured-output field" {
-  run rg_or_grep -F 'never embedded as text/tags' "$REFS/design.workflow.js"
+  run rg_or_grep -F 'never embedded as text/tags' "$BT_WF/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'never write `openQuestions` as text or tags' "$REFS/designer.md"
+  run rg_or_grep -F 'never write `openQuestions` as text or tags' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
 }
 
@@ -476,11 +478,11 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 # --- Model assignment: unpinned family aliases + difficulty classifier ---
 
 @test "workflow model tiers are unpinned to bare aliases with the classifier maps present" {
-  run rg_or_grep -F 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' "$REFS/design.workflow.js"
+  run rg_or_grep -F 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' "$BT_WF/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' "$REFS/design.workflow.js"
+  run rg_or_grep -F 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' "$BT_WF/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'model: DESIGNER_MODEL' "$REFS/design.workflow.js"
+  run rg_or_grep -F 'model: DESIGNER_MODEL' "$BT_WF/design.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'const PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -ne 0 ]
@@ -501,18 +503,18 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 }
 
 @test "explore scout schema carries no difficulty; the designer model comes from build-task's SIZE" {
-  run rg_or_grep -F 'required: ["subsystems"]' "$REFS/explore.workflow.js"
+  run rg_or_grep -F 'required: ["subsystems"]' "$BT_WF/explore.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'difficulty' "$REFS/explore.workflow.js"
+  run rg_or_grep -F 'difficulty' "$BT_WF/explore.workflow.js"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F 'let DESIGNER_MODEL = designerModel(SIZE)' "$REFS/design.workflow.js"
+  run rg_or_grep -F 'let DESIGNER_MODEL = designerModel(SIZE)' "$BT_WF/design.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "design.workflow.js designer dispatch falls back from fable to opus on a throw" {
-  run rg_or_grep -F 'if (DESIGNER_MODEL !== "fable") throw e;' "$REFS/design.workflow.js"
+  run rg_or_grep -F 'if (DESIGNER_MODEL !== "fable") throw e;' "$BT_WF/design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'DESIGNER_MODEL = "opus";' "$REFS/design.workflow.js"
+  run rg_or_grep -F 'DESIGNER_MODEL = "opus";' "$BT_WF/design.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -541,7 +543,7 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 }
 
 @test "sonnet and haiku workflow assignments stay bare aliases" {
-  run rg_or_grep -F 'explorer: "haiku"' "$REFS/explore.workflow.js"
+  run rg_or_grep -F 'explorer: "haiku"' "$BT_WF/explore.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
@@ -574,13 +576,13 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 @test "README Agents table and the design/delivery references drop the pinned model ID for size/classifier phrasing" {
   run rg_or_grep -F 'claude-opus-4-8' "$PLUGIN/README.md"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F 'claude-opus-4-8' "$REFS/design.md"
+  run rg_or_grep -F 'claude-opus-4-8' "$BT_WF/design.md"
   [ "$status" -ne 0 ]
   run rg_or_grep -F 'claude-opus-4-8' "$REFS/spec-driven-delivery.md"
   [ "$status" -ne 0 ]
   run rg_or_grep -F 'fable' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'fable' "$REFS/design.md"
+  run rg_or_grep -F 'fable' "$BT_WF/design.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'fable' "$REFS/spec-driven-delivery.md"
   [ "$status" -eq 0 ]
@@ -1158,42 +1160,42 @@ mm_git_fixture() {
 # --- ponytail design-phase enforcement ---
 
 @test "designer prompt embeds the ponytail reuse ladder and the never-trim carve-out" {
-  run rg_or_grep -iF 'reuse ladder' "$REFS/designer.md"
+  run rg_or_grep -iF 'reuse ladder' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'stdlib' "$REFS/designer.md"
+  run rg_or_grep -iF 'stdlib' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'No unrequested abstractions' "$REFS/designer.md"
+  run rg_or_grep -iF 'No unrequested abstractions' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'USER DECISION' "$REFS/designer.md"
+  run rg_or_grep -F 'USER DECISION' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
 }
 
 @test "design-reviewer checklist includes the over-engineering (ponytail) item 8" {
-  run rg_or_grep -iF 'Over-engineering (ponytail)' "$REFS/design-reviewer.md"
+  run rg_or_grep -iF 'Over-engineering (ponytail)' "$BT_ROLES/design-reviewer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -E '^8\.' "$REFS/design-reviewer.md"
+  run rg_or_grep -E '^8\.' "$BT_ROLES/design-reviewer.md"
   [ "$status" -eq 0 ]
 }
 
 @test "the spec-writer prompt carries the draft's lean/YAGNI decisions forward" {
-  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$REFS/spec.workflow.js"
+  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$BT_WF/spec.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "design-only roles live as build-task role files without frontmatter; old agent and workflow files are gone" {
   for r in designer design-reviewer; do
-    [ -s "$REFS/$r.md" ]
+    [ -s "$BT_ROLES/$r.md" ]
     [ ! -e "$AGENTS_DIR/$r.md" ]
-    run head -n 1 "$REFS/$r.md"
+    run head -n 1 "$BT_ROLES/$r.md"
     [ "$output" = "# $r — role definition" ]
-    run rg_or_grep -E '^(---|name:|model:|tools:|description:)' "$REFS/$r.md"
+    run rg_or_grep -E '^(---|name:|model:|tools:|description:)' "$BT_ROLES/$r.md"
     [ "$status" -ne 0 ]
-    run rg_or_grep -F 'No narrative text between tool calls' "$REFS/$r.md"
+    run rg_or_grep -F 'No narrative text between tool calls' "$BT_ROLES/$r.md"
     [ "$status" -ne 0 ]
-    run rg_or_grep -F 'design-to-spec' "$REFS/$r.md"
+    run rg_or_grep -F 'design-to-spec' "$BT_ROLES/$r.md"
     [ "$status" -ne 0 ]
   done
-  run rg_or_grep -F 'You are read-only: never use Write, Edit, NotebookEdit, or a Bash command that changes files or git state.' "$REFS/design-reviewer.md"
+  run rg_or_grep -F 'You are read-only: never use Write, Edit, NotebookEdit, or a Bash command that changes files or git state.' "$BT_ROLES/design-reviewer.md"
   [ "$status" -eq 0 ]
   [ ! -e "$WORKFLOWS/design-to-spec.workflow.js" ]
 }
@@ -1268,10 +1270,10 @@ mm_git_fixture() {
 }
 
 @test "reference docs document GRAPHMIND_AVAILABLE and REPO_PATH for the explore script and the delivery workflow" {
-  for f in explore.md spec-driven-delivery.md; do
-    run rg_or_grep -F '`GRAPHMIND_AVAILABLE`' "$REFS/$f"
+  for f in workflows/explore.md references/spec-driven-delivery.md; do
+    run rg_or_grep -F '`GRAPHMIND_AVAILABLE`' "$SKILL/$f"
     [ "$status" -eq 0 ]
-    run rg_or_grep -F '`REPO_PATH`' "$REFS/$f"
+    run rg_or_grep -F '`REPO_PATH`' "$SKILL/$f"
     [ "$status" -eq 0 ]
   done
 }

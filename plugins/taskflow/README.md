@@ -12,15 +12,15 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 
 ## Skills
 
-| Skill           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build-task`    | Orchestrator: creates and enters a `feature/<slug>` worktree, runs the design pipeline (explore → size → design → spec; scripts and the designer/design-reviewer role files live in `skills/build-task/references/`), `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Sizes the task with jev-api's `score` tool when available, otherwise by its own reasoning. Invokes the `spec-driven-delivery` workflow below. |
-| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                                                                                                                                                                                         |
-| `changes-audit` | Runs the `changes-review` workflow over the current branch's committed diff, then applies findings by re-dispatching `fix-applier`: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies only your picks. Report-only lean (over-engineering) findings are never applied.                                                                                                                                                                    |
+| Skill           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-task`    | Orchestrator: creates and enters a `feature/<slug>` worktree, runs the design pipeline (explore → size → design → spec; scripts and the designer/design-reviewer role files live in `skills/build-task/workflows/` and `roles/`), `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Sizes the task with jev-api's `score` tool when available, otherwise by its own reasoning. Invokes the `spec-driven-delivery` workflow below. |
+| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                                                                                                                                                                                                     |
+| `changes-audit` | Runs the `changes-review` workflow over the current branch's committed diff, then applies findings by re-dispatching `fix-applier`: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies only your picks. Report-only lean (over-engineering) findings are never applied.                                                                                                                                                                                |
 
 ## Workflows
 
-The plugin-root `workflows/` directory holds the two workflows below. They are auto-discovered — no manifest field needed — so skills invoke them by name, namespaced as `/taskflow:<name>`. build-task's design pipeline is not a plugin workflow: its three scripts (`explore.workflow.js`, `design.workflow.js`, `spec.workflow.js`) live in `skills/build-task/references/` and run by `scriptPath`; each writes one session-temp file (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`) and returns only its path plus small status fields. Every script reads its inputs from the `args` global (structured object); a `decodeArgs` guard fails fast with `stage: 'args'` if a run is launched without input. Per-script usage references (parameters, exit contract, behavior) live in `skills/build-task/references/`. When the graphmind MCP server is connected and the checkout is registered (`graphmind which`), the design explorers and the planner use graphmind's code graph and project memory; otherwise they fall back to the built-in Explore agent / file search.
+The plugin-root `workflows/` directory holds the two workflows below. They are auto-discovered — no manifest field needed — so skills invoke them by name, namespaced as `/taskflow:<name>`. build-task's design pipeline is not a plugin workflow: its three scripts (`explore.workflow.js`, `design.workflow.js`, `spec.workflow.js`) live in `skills/build-task/workflows/` and run by `scriptPath`; each writes one session-temp file (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`) and returns only its path plus small status fields. Every script reads its inputs from the `args` global (structured object); a `decodeArgs` guard fails fast with `stage: 'args'` if a run is launched without input. Per-script usage references (parameters, exit contract, behavior) live in `skills/build-task/workflows/`. When the graphmind MCP server is connected and the checkout is registered (`graphmind which`), the design explorers and the planner use graphmind's code graph and project memory; otherwise they fall back to the built-in Explore agent / file search.
 
 | Workflow               | Purpose                                                                                                                                                                                                                                                                      |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -43,7 +43,7 @@ Static role prompts (rules, lens catalog, verdict ladder, git procedures), dispa
 | `ci-monitor`      | haiku  | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                                            |
 | `ci-fixer`        | sonnet | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                                        |
 
-The designer and the design reviewer are not plugin agents: they are role files in `skills/build-task/references/` read by the design script's inline agents. Designer model from the task size (`S` → sonnet, `M`/`L` → opus, `XL` → fable); design reviewer on sonnet.
+The designer and the design reviewer are not plugin agents: they are role files in `skills/build-task/roles/` read by the design script's inline agents. Designer model from the task size (`S` → sonnet, `M`/`L` → opus, `XL` → fable); design reviewer on sonnet.
 
 ## Layout
 
@@ -63,15 +63,17 @@ taskflow/
 └── skills/
     ├── build-task/
     │   ├── SKILL.md                       # orchestrator
+    │   ├── workflows/
+    │   │   ├── explore.workflow.js        # design pipeline 1/3 (run by scriptPath)
+    │   │   ├── design.workflow.js         # design pipeline 2/3
+    │   │   ├── spec.workflow.js           # design pipeline 3/3
+    │   │   ├── explore.md                 # parameters + exit contract
+    │   │   ├── design.md                  # parameters + exit contract
+    │   │   └── spec.md                    # parameters + exit contract
+    │   ├── roles/
+    │   │   ├── designer.md                # role file (design script)
+    │   │   └── design-reviewer.md         # role file (design script)
     │   └── references/
-    │       ├── explore.workflow.js        # design pipeline 1/3 (run by scriptPath)
-    │       ├── design.workflow.js         # design pipeline 2/3
-    │       ├── spec.workflow.js           # design pipeline 3/3
-    │       ├── designer.md                # role file (design script)
-    │       ├── design-reviewer.md         # role file (design script)
-    │       ├── explore.md                 # parameters + exit contract
-    │       ├── design.md                  # parameters + exit contract
-    │       ├── spec.md                    # parameters + exit contract
     │       └── spec-driven-delivery.md    # parameters + exit contract
     ├── dispatch-task/
     │   └── SKILL.md                       # background-session dispatch
