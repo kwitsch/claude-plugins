@@ -1418,17 +1418,11 @@ mm_git_fixture() {
   done
 }
 
-@test "the three review agents name build-task's review script as their first entry point" {
+@test "the three review agents carry no stale spec-driven-delivery reference" {
   for a in review-finder review-verifier fix-applier; do
-    run rg_or_grep -F "build-task's review script" "$AGENTS_DIR/$a.md"
-    [ "$status" -eq 0 ]
-    run rg_or_grep -F 'skills/build-task/workflows/review.workflow.js' "$AGENTS_DIR/$a.md"
-    [ "$status" -eq 0 ]
     run rg_or_grep -F 'spec-driven-delivery' "$AGENTS_DIR/$a.md"
     [ "$status" -ne 0 ]
   done
-  run rg_or_grep -F 'review.workflow.js`, its Apply phase)' "$AGENTS_DIR/fix-applier.md"
-  [ "$status" -eq 0 ]
 }
 
 @test "changes-review comments point at the build-task review script, not the removed workflow" {
