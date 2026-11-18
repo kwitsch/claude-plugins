@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// explore.workflow.js — build-task design pipeline, phase 1 of 3
+// build-task-explore.workflow.js — build-task design pipeline, phase 1 of 3
 //
 //   Scout → 1..N read-only explorers → (graphmind path only) one project-memory
 //   recall → a scribe agent writes the exploration reports to EXPLORE_PATH.
 //
 // The build-task skill never reads that file; it hands the path on to
-// design.workflow.js. Runs once per build-task invocation: resumes and intent
+// build-task-design.workflow.js. Runs once per build-task invocation: resumes and intent
 // corrections re-run only the design and spec scripts, which read the same
 // file.
 //

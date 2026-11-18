@@ -6,7 +6,7 @@
 
 No model tier is pinned: every role floats on its family alias (`haiku`/`sonnet`/`opus`/`fable`, each resolving to the newest model in that family). Pinned IDs caused problems in practice and were removed across the board (`sonnet`/`haiku` were always bare). Do not reintroduce a pinned ID; the bats suite sweeps the whole plugin for one.
 
-`haiku` is the default tier: every fixed role in a script's `MODELS` and the per-task implementer/fixer run on it. Off the default tier: the recall/judgment-critical roles on `sonnet` (`MODELS.finder`, `verifier`, `applier`, `ponytailReviewer` in `review.workflow.js` and `changes-review.workflow.js`, `MODELS.ciFixer` in `ship.workflow.js`), the per-task reviewer for `complex` tasks (`reviewModel()` in `implement.workflow.js` picks `sonnet` for them), the design phase (the design reviewer in `design.workflow.js` and the spec writer and spec reviewer in `spec.workflow.js` stay on `sonnet`; the `scout`, explorers, memory recall and `scribe` in `explore.workflow.js` run on `haiku`), the plan phase (`MODELS.planChecker` in `plan.workflow.js` stays on `sonnet`), and the fixed `opus` roles listed below (`MODELS.synthesizer`, `implModel()` for `complex` tasks). The designer and planner pick their model per run, as below.
+`haiku` is the default tier: every fixed role in a script's `MODELS` and the per-task implementer/fixer run on it. Off the default tier: the recall/judgment-critical roles on `sonnet` (`MODELS.finder`, `verifier`, `applier`, `ponytailReviewer` in `build-task-review.workflow.js` and `changes-review.workflow.js`, `MODELS.ciFixer` in `build-task-ship.workflow.js`), the per-task reviewer for `complex` tasks (`reviewModel()` in `build-task-implement.workflow.js` picks `sonnet` for them), the design phase (the design reviewer in `build-task-design.workflow.js` and the spec writer and spec reviewer in `build-task-spec.workflow.js` stay on `sonnet`; the `scout`, explorers, memory recall and `scribe` in `build-task-explore.workflow.js` run on `haiku`), the plan phase (`MODELS.planChecker` in `build-task-plan.workflow.js` stays on `sonnet`), and the fixed `opus` roles listed below (`MODELS.synthesizer`, `implModel()` for `complex` tasks). The designer and planner pick their model per run, as below.
 
 The two highest-judgment authoring roles pick their model per run from the `SIZE` arg (build-task sizes the task once after Explore — jev-api `score`, or its own reasoning). Both use the same table — `S → sonnet`, `M → opus`, `L → opus`, `XL → fable`, unset or unknown → `opus` — and the same fallbacks: a `fable` dispatch that throws falls back to `opus` for the rest of the run, and a `null` result on `fable` is retried on `opus`.
 
@@ -16,20 +16,20 @@ The two highest-judgment authoring roles pick their model per run from the `SIZE
 Fixed bare `opus`, not size-driven:
 
 - `MODELS.synthesizer` in `workflows/build-task-review.workflow.js` and `changes-review.workflow.js`.
-- `implModel()` in `implement.workflow.js` — `opus` for `complexity === "complex"` tasks, `haiku` otherwise (the per-task fixer reuses the implementer's model).
+- `implModel()` in `build-task-implement.workflow.js` — `opus` for `complexity === "complex"` tasks, `haiku` otherwise (the per-task fixer reuses the implementer's model).
 
 The agents' frontmatter `model` is only a default; the explicit `agent()` `model` option always wins: `DESIGNER_MODEL`, `PLANNER_MODEL`, or the script's `MODELS` entry (merger, pr-author, shipper and ci-monitor on `haiku`, ci-fixer on `sonnet`). The `MODELS` object at the top of each script is the single place to change a fixed assignment.
 
-The review depth is not a model choice but follows the same size: build-task maps `SIZE` to `LEVEL` (`S`/`M` → `high`, `L`/`XL` → `max`) and passes it to `review.workflow.js`; no script derives it from the plan.
+The review depth is not a model choice but follows the same size: build-task maps `SIZE` to `LEVEL` (`S`/`M` → `high`, `L`/`XL` → `max`) and passes it to `build-task-review.workflow.js`; no script derives it from the plan.
 
 ## `NO_NARRATION` on inline prompts
 
 - Eleven roles are dispatched through a plugin `agentType` (`review-finder`, `review-verifier`, `fix-applier`, plus the eight build-task roles designer, design-reviewer, planner, worktree-merger, pr-author, shipper, ci-monitor, ci-fixer); their `agents/*.md` system prompt carries the rule. Every other prompt in every script is inline and prefixed with `NO_NARRATION`: the scope-gathering, synthesizer and lean-pass agents of both review scripts, and the remaining agents of the other build-task scripts — scout, explorers, memory recall, scribe, spec writer, spec reviewer, plan checker, plan loader, per-task implementer/reviewer/fixer, result-file scribe, ship's result-files check. `build-task-design.workflow.js` has no inline prompt and no `NO_NARRATION` constant.
 - Role agents are named only by `agentType` (their model comes from the script's `model` option, which overrides the agent frontmatter); no prompt of theirs points at a role file.
 - Each script defines `const NO_NARRATION = "…"` (wording identical in every script and to the rule in `agents/*.md`) near the top. Add the same prefix to any new inline (non-`agentType`) prompt in any workflow script.
-- The built-in `agentType: "Explore"` path (`explorerPrompt` in `explore.workflow.js`) carries the rule only in the per-call prompt text: its system prompt is foreign to this plugin.
+- The built-in `agentType: "Explore"` path (`explorerPrompt` in `build-task-explore.workflow.js`) carries the rule only in the per-call prompt text: its system prompt is foreign to this plugin.
 
-## `design.workflow.js` designer prompt
+## `build-task-design.workflow.js` designer prompt
 
 The designer prompt in `workflows/build-task-design.workflow.js` states explicitly that `keypoints` and `openQuestions` are separate structured-output fields — `openQuestions` must never be embedded as text/tags inside `keypoints` (a model that conflates the two fails `StructuredOutput` schema validation repeatedly, or worse, emits schema-valid placeholder junk that then sails into the pipeline undetected). `runDesigner`'s retry (`hasContaminatedKeypoints`) also retries on a schema-valid result whose `keypoints` string still contains contamination markers (`<openQuestions`, `</invoke`), not just on a `null` result — see `agents/designer.md` for the parallel role-file statement of this same rule.
 
@@ -55,7 +55,7 @@ required trade-off).
 
 ## Result files and the scribe
 
-`implement.workflow.js` and `review.workflow.js` each end by writing one JSON
+`build-task-implement.workflow.js` and `build-task-review.workflow.js` each end by writing one JSON
 result file (`IMPLEMENT_PATH`, `REVIEW_PATH`) through an identical `persist()`
 helper (only its `phase` label differs): a `haiku` scribe writes the text with
 a Bash heredoc (`TASKFLOW_JSON_EOF`, never the Write or Edit tool — the

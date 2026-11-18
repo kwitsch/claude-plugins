@@ -1,12 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// plan.workflow.js — build-task delivery pipeline, phase 1 of 4
+// build-task-plan.workflow.js — build-task delivery pipeline, phase 1 of 4
 //
 //   Approved spec → implementation plan (planner) → plan check → at most one
 //   revision round → recheck
 //
 // The planner writes the plan to PLAN_PATH itself; that file (with its
 // '## Global Constraints' section and '## Machine-readable tasks' JSON block)
-// is this script's output and the input of implement.workflow.js. Exits:
+// is this script's output and the input of build-task-implement.workflow.js. Exits:
 //
 //   'complete' — { status, planPath, plannerModel }
 //   'error'    — { status, stage: 'args' | 'Plan', error, planPath?, plannerModel? }

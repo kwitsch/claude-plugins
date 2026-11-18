@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// ship.workflow.js — build-task delivery pipeline, phase 4 of 4
+// build-task-ship.workflow.js — build-task delivery pipeline, phase 4 of 4
 //
 //   PR/MR text (pr-author) → push + create-or-update + mergeability (shipper)
 //   → bounded CI watch (ci-monitor) with bounded fix rounds (ci-fixer)

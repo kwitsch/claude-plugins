@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// design.workflow.js — build-task design pipeline, phase 2 of 3
+// build-task-design.workflow.js — build-task design pipeline, phase 2 of 3
 //
 //   Draft design → review gate → at most one revision round → recheck
 //
-// Reads the exploration file written by explore.workflow.js (EXPLORE_PATH);
+// Reads the exploration file written by build-task-explore.workflow.js (EXPLORE_PATH);
 // the designer writes the draft to DRAFT_PATH itself (persistent state between
 // runs). Intent confirmation (human) stays OUTSIDE the workflow — workflow
 // scripts have no AskUserQuestion. Exits:

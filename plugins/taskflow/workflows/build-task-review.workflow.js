@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// review.workflow.js — build-task delivery pipeline, phase 3 of 4
+// build-task-review.workflow.js — build-task delivery pipeline, phase 3 of 4
 //
 //   Scope → finders (correctness angles + cleanup lenses) → independent
 //   verification → optional gap sweep → synthesis → report-only lean pass →
@@ -8,7 +8,7 @@
 // Reviews the accumulated branch diff (git diff BASE_BRANCH...HEAD) against
 // the approved spec and the plan, applies the verified findings through the
 // fix-applier plugin agent and writes the full result to REVIEW_PATH (read
-// later by the pr-author of ship.workflow.js). Findings with reversesDecision
+// later by the pr-author of build-task-ship.workflow.js). Findings with reversesDecision
 // are NEVER applied, only returned as escalatedToUser (no AskUserQuestion is
 // possible inside a workflow script). The lean (ponytail) pass is report-only.
 // The review engine is duplicated in the plugin's changes-review.workflow.js
