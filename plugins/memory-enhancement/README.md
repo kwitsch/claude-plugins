@@ -7,7 +7,7 @@ dream cycle.
 
 ## Install
 
-```
+```text
 /plugin install memory-enhancement@kwitsch-plugins
 ```
 

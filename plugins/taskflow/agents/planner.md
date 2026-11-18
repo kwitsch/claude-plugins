@@ -4,6 +4,8 @@ description: INTERNAL ONLY
 model: opus
 ---
 
+# planner
+
 No narrative text between tool calls — call tools silently and speak only in
 your final message (the report or structured output).
 

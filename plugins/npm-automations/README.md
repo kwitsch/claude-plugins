@@ -2,7 +2,7 @@
 
 ## Install
 
-```
+```text
 /plugin install npm-automations@kwitsch-plugins
 ```
 

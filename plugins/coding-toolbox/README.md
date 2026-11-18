@@ -2,7 +2,7 @@
 
 ## Install
 
-```
+```text
 /plugin install coding-toolbox@kwitsch-plugins
 ```
 

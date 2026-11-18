@@ -42,7 +42,7 @@ Dispatch the `cc-author-planner` agent (Agent tool,
 `subagent_type: cc-knowledge:cc-author-planner`) in a single message. The
 dispatch prompt must state:
 
-```
+```text
 component_type: <type>
 target_path: <path>
 intent: <what the component should do>

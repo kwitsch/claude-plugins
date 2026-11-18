@@ -28,7 +28,7 @@ Plan tasks are numbered in dependency order already
 tasks**") — a task can only depend on a strictly earlier one, never a later
 one. For tasks `1..N` in plan order:
 
-```
+```text
 depends_on[i] = { j < i : files[i] ∩ files[j] ≠ ∅ }
               ∪ { j < i : consumes[i] ∩ produces[j] ≠ ∅ }
               ∪ (every j < i — conservative fallback — if task i's Files or

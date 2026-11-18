@@ -4,7 +4,7 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 
 ## Install
 
-```
+```text
 /plugin install cc-knowledge@kwitsch-plugins
 ```
 
@@ -55,7 +55,7 @@ All reference files live in the skill's `references/` subfolder
 
 Once installed, invoke the skill with your question:
 
-```
+```text
 /cc-knowledge:cc-reference <your question>
 ```
 

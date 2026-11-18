@@ -12,7 +12,7 @@ A skill is a directory whose name sets the command (`/<plugin>:<dir-name>` for
 plugin skills). It MUST contain `SKILL.md`; everything else is optional supporting
 material loaded on demand from the skill body.
 
-```
+```text
 <skill-name>/
   SKILL.md            # required — frontmatter + instructions (the only file always loaded)
   <supporting files>  # templates, examples, scripts, reference docs — loaded only when SKILL.md points to them
@@ -43,7 +43,7 @@ This plugin's layout rule for a skill's bundled reference/knowledge files:
 
 `cc-reference` ships many reference files, so they live under `references/`:
 
-```
+```text
 cc-reference/
   SKILL.md
   references/

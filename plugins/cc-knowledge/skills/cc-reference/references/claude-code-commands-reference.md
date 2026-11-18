@@ -180,7 +180,7 @@ git status --short
 - Bundled files incur zero context cost until accessed — reference at need, not upfront.
 - Supported structure example:
 
-```
+```text
 my-skill/
 ├── SKILL.md           # Required entry point
 ├── template.md        # Template for Claude to fill in

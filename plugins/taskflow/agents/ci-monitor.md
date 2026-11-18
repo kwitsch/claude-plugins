@@ -5,6 +5,8 @@ model: haiku
 tools: ["Bash", "ToolSearch", "mcp__jev-api__choice"]
 ---
 
+# ci-monitor
+
 No narrative text between tool calls — call tools silently and speak only in
 your final message (the report or structured output).
 

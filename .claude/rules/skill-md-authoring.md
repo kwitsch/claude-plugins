@@ -46,7 +46,7 @@ disallowed-tools: Write # Remove tools from pool while skill active (clears next
 
 Place additional files alongside `SKILL.md` in the same skill directory:
 
-```
+```text
 my-skill/
 ├── SKILL.md           # main instructions (required)
 ├── template.md        # template for Claude to fill in

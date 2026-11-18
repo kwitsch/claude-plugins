@@ -75,7 +75,7 @@ When modifying any `plugins/*/README.md`, validate the corresponding row in the 
 
 **Table format:**
 
-```
+```text
 | [<plugin-name>](plugins/<plugin-name>/README.md) | one-line description |
 ```
 

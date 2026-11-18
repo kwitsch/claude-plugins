@@ -120,7 +120,9 @@ its table.
 Only after step 4's inline flow fully resolves — step 3's lsp-audit may just
 have added `.lsp.json` servers such as `pylsp` or `gopls` — run:
 
-    node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT"
+```bash
+node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT"
+```
 
 `${CLAUDE_SKILL_DIR}` is a bare pre-injection substitution token — never a live
 shell variable and never dynamic-context-injected. The script prints one JSON
@@ -147,7 +149,7 @@ object to stdout (the audit schema in the reference). Parse it, then:
 - **Otherwise, gate.** When `$FIX` is set, skip the question entirely and treat
   it as confirmed. Otherwise ask one `AskUserQuestion` — single-select, header
   `Dev env`, question "Create a project-level init-dev-environment skill that
-  installs <comma-separated tool ids> at user level (~/.local/bin)?", options:
+  installs `<comma-separated tool ids>` at user level (~/.local/bin)?", options:
   - `Create init-dev-environment skill` — "Writes
     .claude/skills/init-dev-environment/ (SKILL.md + install.sh). Installs
     nothing now."
@@ -155,7 +157,9 @@ object to stdout (the audit schema in the reference). Parse it, then:
 
 If confirmed, run the write and parse its JSON:
 
-    node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --write
+```bash
+node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --write
+```
 
 - **`wrote: true`** — record the created path and the next step: review and
   commit the directory, then run `/init-dev-environment` to install. When
@@ -187,9 +191,11 @@ Only for the `skillExists`-true case with a non-empty `missingTools`.
 When no id is confirmed, run nothing and record the declined ids. Otherwise run
 the confirmed ids, comma-separated with no spaces, and parse the JSON:
 
-    node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --add "<id>,<id>"
+```bash
+node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --add "<id>,<id>"
+```
 
-- **`added` is non-empty** — record "extended with <added ids>", plus any
+- **`added` is non-empty** — record "extended with `<added ids>`", plus any
   declined ids, and the next step: review and commit the directory, then run
   `/init-dev-environment` to install the new tools.
 - **A confirmed id is absent from `added`** (the tree changed between the two
