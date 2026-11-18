@@ -123,3 +123,99 @@ same_as_head() { git -C "$REPO" diff --quiet HEAD -- "$REF"; }
   run --separate-stderr refresh plan memory "$SCRATCH"
   [ "$status" -eq 2 ]
 }
+
+@test "gate/finish: a pure addition is additive and gets the plan date stamped" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  printf '| delta | added row |\n' >> "$REF"
+  run --separate-stderr refresh gate "$SCRATCH" claude-code-memory-reference
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -c .changing)" = "[]" ]
+  [ "$(printf '%s' "$output" | jq .additive)" -eq 1 ]
+  [ "$(printf '%s' "$output" | jq -r .diffPath)" = "null" ]
+  run --separate-stderr refresh finish "$SCRATCH" claude-code-memory-reference
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .status)" = "updated" ]
+  [ "$(printf '%s' "$output" | jq -r .stale)" = "false" ]
+  grep -qF "verified $(plan_date)." "$REF"
+  grep -qF '| delta | added row |' "$REF"
+}
+
+@test "finish without --keep reverts a line change and restores the file" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  edit_ref 's/| alpha | first row |/| alpha | first row changed |/'
+  run --separate-stderr refresh finish "$SCRATCH" claude-code-memory-reference
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .status)" = "unchanged" ]
+  [ "$(printf '%s' "$output" | jq -c .reverted)" = '["h1"]' ]
+  same_as_head
+}
+
+@test "gate labels a line change h1 and finish --keep h1 keeps it" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  edit_ref 's/| alpha | first row |/| alpha | first row changed |/'
+  run --separate-stderr refresh gate "$SCRATCH" claude-code-memory-reference
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -c .changing)" = '["h1"]' ]
+  diff_path="$(printf '%s' "$output" | jq -r .diffPath)"
+  grep -qE '^@@ .* h1$' "$diff_path"
+  run --separate-stderr refresh finish "$SCRATCH" claude-code-memory-reference --keep h1
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .status)" = "updated" ]
+  [ "$(printf '%s' "$output" | jq -c .kept)" = '["h1"]' ]
+  grep -qF '| alpha | first row changed |' "$REF"
+  grep -qF "verified $(plan_date)." "$REF"
+}
+
+@test "gate reverts an added version absent from the docs (v9.9.9)" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  printf '| delta | since v9.9.9 |\n' >> "$REF"
+  run --separate-stderr refresh gate "$SCRATCH" claude-code-memory-reference
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq '.autoReverted | length')" -eq 1 ]
+  [ "$(printf '%s' "$output" | jq -c '.autoReverted[0].versions')" = '["9.9.9"]' ]
+  same_as_head
+}
+
+@test "gate keeps a carried-over version gate that is in the removed line" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  edit_ref 's/| beta | second row, version >= 2.1.100 |/| beta | second row edited, version >= 2.1.100 |/'
+  run --separate-stderr refresh gate "$SCRATCH" claude-code-memory-reference
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -c .autoReverted)" = "[]" ]
+  [ "$(printf '%s' "$output" | jq -c .changing)" = '["h1"]' ]
+  run --separate-stderr refresh finish "$SCRATCH" claude-code-memory-reference --keep h1
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .status)" = "updated" ]
+  grep -qF '| beta | second row edited, version >= 2.1.100 |' "$REF"
+}
+
+@test "gate reverts a changed version gate absent from docs and removed line" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  edit_ref 's/| beta | second row, version >= 2.1.100 |/| beta | second row, version >= 2.1.200 |/'
+  run --separate-stderr refresh gate "$SCRATCH" claude-code-memory-reference
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq '.autoReverted | length')" -eq 1 ]
+  same_as_head
+}
+
+@test "finish treats a file edited after gate as stale and reverts its line change" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  edit_ref 's/| alpha | first row |/| alpha | first row changed |/'
+  refresh gate "$SCRATCH" claude-code-memory-reference >/dev/null
+  printf '| delta | added row |\n' >> "$REF"
+  run --separate-stderr refresh finish "$SCRATCH" claude-code-memory-reference --keep h1
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r .stale)" = "true" ]
+  [ "$(printf '%s' "$output" | jq -c .kept)" = "[]" ]
+  run grep -qF 'first row changed' "$REF"
+  [ "$status" -ne 0 ]
+  grep -qF '| delta | added row |' "$REF"
+}
+
+@test "gate and finish reject an unknown name with exit 1" {
+  refresh plan memory "$SCRATCH" >/dev/null
+  run --separate-stderr refresh gate "$SCRATCH" no-such-file
+  [ "$status" -eq 1 ]
+  run --separate-stderr refresh finish "$BATS_TEST_TMPDIR/no-scratch" claude-code-memory-reference
+  [ "$status" -eq 1 ]
+}

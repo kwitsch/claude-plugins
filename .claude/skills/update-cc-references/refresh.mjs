@@ -129,7 +129,160 @@ function cmdPlan(args) {
   return { ok: true, scratch, date: plan.date, targets: plan.targets.map((t) => t.name), workflowScript };
 }
 
-const COMMANDS = { plan: cmdPlan };
+function loadPlan(scratch) {
+  if (!scratch) fail(1, "missing <scratch> argument");
+  const p = join(resolve(scratch), "plan.json");
+  if (!existsSync(p)) fail(1, `missing ${p} (run plan first)`);
+  return JSON.parse(readFileSync(p, "utf8"));
+}
+
+function findTarget(plan, name) {
+  const t = plan.targets.find((x) => x.name === name);
+  if (!t) fail(1, `unknown name: ${name}`);
+  return t;
+}
+
+function sha256(file) {
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+// x.y.z tokens of the given lines, leading "v" stripped.
+function versions(lines) {
+  return lines.flatMap((l) => l.match(VERSION_RE) || []).map((v) => v.replace(/^v/, ""));
+}
+
+// `git diff -U0 HEAD -- <file>` split into header lines and hunks { head, body, removed, added }.
+function diffFile(plan, t) {
+  const out = git(["diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U0", "HEAD", "--", t.file], plan.repoRoot);
+  const lines = out.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  const header = [];
+  const hunks = [];
+  for (const line of lines) {
+    if (line.startsWith("@@")) hunks.push({ head: line, body: [] });
+    else if (hunks.length) hunks.at(-1).body.push(line);
+    else header.push(line);
+  }
+  for (const h of hunks) {
+    h.removed = h.body.filter((l) => l.startsWith("-")).map((l) => l.slice(1));
+    h.added = h.body.filter((l) => l.startsWith("+")).map((l) => l.slice(1));
+  }
+  return { header, hunks };
+}
+
+function isDateHunk(h) {
+  const mask = (l) => l.replace(DATE_RE, "$1<date>");
+  return h.removed.length === 1 && h.added.length === 1 && DATE_RE.test(h.removed[0]) && mask(h.removed[0]) === mask(h.added[0]);
+}
+
+// Date hunks dropped; unsourced = adds an x.y.z found neither in its own removed lines nor in the docs;
+// changing = other hunks removing >= 1 line (ids h1..hN in diff order); additive = the rest (count).
+function analyze(plan, t) {
+  const docsText = t.docs.map((d) => (existsSync(d.path) ? readFileSync(d.path, "utf8") : "")).join("\n");
+  const { header, hunks } = diffFile(plan, t);
+  const unsourced = [];
+  const changing = [];
+  let additive = 0;
+  for (const h of hunks) {
+    if (isDateHunk(h)) continue;
+    const carried = new Set(versions(h.removed));
+    const bad = [...new Set(versions(h.added))].filter((v) => !carried.has(v) && !docsText.includes(v));
+    if (bad.length) unsourced.push({ ...h, versions: bad });
+    else if (h.removed.length) changing.push({ ...h, id: `h${changing.length + 1}` });
+    else additive++;
+  }
+  return { header, unsourced, changing, additive };
+}
+
+function newStart(h) {
+  return Number(/\+(\d+)/.exec(h.head)?.[1] ?? 0);
+}
+
+function revertHunks(plan, t, header, hunks) {
+  if (!hunks.length) return;
+  const before = readFileSync(t.file);
+  const patch = join(plan.scratch, "diffs", `${t.name}.revert.patch`);
+  // One hunk per apply, bottom-up: -U0 hunks carry no context to re-anchor on, so reverting from the end
+  // keeps every earlier hunk's line numbers valid. The snapshot keeps the whole revert all-or-nothing.
+  const ordered = [...hunks].sort((a, b) => newStart(b) - newStart(a));
+  for (const h of ordered) {
+    writeFileSync(patch, [...header, h.head, ...h.body].join("\n") + "\n");
+    const r = run("git", ["apply", "-R", "--unidiff-zero", patch], { cwd: plan.repoRoot });
+    if (r.status !== 0) {
+      writeFileSync(t.file, before);
+      process.stderr.write(r.stderr);
+      fail(3, `git apply -R failed for ${t.name}`, { name: t.name });
+    }
+  }
+}
+
+function stampDate(file, date) {
+  const lines = readFileSync(file, "utf8").split("\n");
+  for (let i = 0; i < Math.min(15, lines.length); i++) {
+    if (!DATE_RE.test(lines[i])) continue;
+    const next = lines[i].replace(DATE_RE, `$1${date}`);
+    if (next !== lines[i]) {
+      lines[i] = next;
+      writeFileSync(file, lines.join("\n"));
+    }
+    return;
+  }
+}
+
+const autoReport = (hunks) => hunks.map((h) => ({ versions: h.versions, header: h.head }));
+
+function cmdGate(args) {
+  const plan = loadPlan(args[0]);
+  const t = findTarget(plan, args[1]);
+  let a = analyze(plan, t);
+  const autoReverted = autoReport(a.unsourced);
+  if (a.unsourced.length) {
+    revertHunks(plan, t, a.header, a.unsourced);
+    a = analyze(plan, t);
+  }
+  let diffPath = null;
+  if (a.changing.length) {
+    diffPath = join(plan.scratch, "diffs", `${t.name}.diff`);
+    writeFileSync(diffPath, [...a.header, ...a.changing.flatMap((h) => [`${h.head} ${h.id}`, ...h.body])].join("\n") + "\n");
+  }
+  const state = { sha256: sha256(t.file), ids: a.changing.map((h) => h.id) };
+  writeFileSync(join(plan.scratch, "diffs", `${t.name}.state.json`), JSON.stringify(state) + "\n");
+  return { name: t.name, additive: a.additive, changing: state.ids, diffPath, autoReverted };
+}
+
+function cmdFinish(args) {
+  const plan = loadPlan(args[0]);
+  const t = findTarget(plan, args[1]);
+  const k = args.indexOf("--keep");
+  const requested = k >= 0 && args[k + 1] ? args[k + 1].split(",").map((s) => s.trim()).filter((s) => /^h\d+$/.test(s)) : [];
+  const statePath = join(plan.scratch, "diffs", `${t.name}.state.json`);
+  const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : null;
+  // Fail-closed: without a matching gate snapshot no line change can be kept.
+  const stale = !state || state.sha256 !== sha256(t.file);
+  const keep = new Set(stale ? [] : requested.filter((id) => state.ids.includes(id)));
+  const a = analyze(plan, t);
+  const drop = a.changing.filter((h) => !keep.has(h.id));
+  revertHunks(plan, t, a.header, [...a.unsourced, ...drop]);
+  const rest = diffFile(plan, t).hunks.filter((h) => !isDateHunk(h));
+  let status;
+  if (!rest.length) {
+    git(["checkout", "HEAD", "--", t.file], plan.repoRoot);
+    status = "unchanged";
+  } else {
+    stampDate(t.file, plan.date);
+    status = "updated";
+  }
+  return {
+    name: t.name,
+    status,
+    kept: a.changing.filter((h) => keep.has(h.id)).map((h) => h.id),
+    reverted: drop.map((h) => h.id),
+    autoReverted: autoReport(a.unsourced),
+    stale,
+  };
+}
+
+const COMMANDS = { plan: cmdPlan, gate: cmdGate, finish: cmdFinish };
 
 function main() {
   const [cmd, ...args] = process.argv.slice(2);
