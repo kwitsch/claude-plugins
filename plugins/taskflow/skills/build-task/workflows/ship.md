@@ -54,7 +54,7 @@ dispatched. There is no ship on/off arg: the script always ships when run.
 
 - The implement and review scripts completed: both result files exist and all
   work is committed on `BRANCH_NAME`. A missing or unreadable result file
-  surfaces through the pr-author (null twice → `ship.status: 'blocked'`).
+  surfaces through the pr-author (null twice → `ship.status: 'blocked'`). A pre-check (`test -s`) of the implement and review result files fails closed: a missing or empty file also yields `blocked`, before anything is pushed.
 
 ## Result (exit contract)
 

@@ -117,6 +117,11 @@ const PR_TEXT = {
   required: ["title", "bodyPath"],
   properties: { title: { type: "string" }, bodyPath: { type: "string" } },
 };
+const FILES_CHECK = {
+  type: "object",
+  required: ["ok"],
+  properties: { ok: { type: "boolean" }, detail: { type: "string" } },
+};
 const SHIP_RESULT = {
   type: "object",
   required: ["status"],
@@ -171,8 +176,19 @@ const RESULT_FILES = "Pipeline result files (faithful source of truth — Read b
   + REVIEW_PATH
   + " (level, summary, applied/skipped, escalated open items, fix commits, lean-review findings)";
 const CONTEXT_FILES = "Spec (context): " + SPEC_PATH + " — Plan (context): " + PLAN_PATH;
+// Fail closed: a missing or empty result file would silently drop open items from the PR/MR body.
+const filesCheck = await agent(
+  NO_NARRATION
+    + "\n\nFor each absolute path below run `test -s \"<path>\"` with the Bash tool. Return ok=true only when every file exists and is non-empty, else ok=false with the failing paths in detail. Do not read or change anything.\n"
+    + IMPLEMENT_PATH
+    + "\n"
+    + REVIEW_PATH
+    + "\nStructured output only.",
+  { label: "result-files-check", phase: "Ship", schema: FILES_CHECK, model: MODELS.prAuthor },
+);
+const filesOk = !!(filesCheck && filesCheck.ok === true);
 const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor };
-let prText = await agent(
+let prText = !filesOk ? null : await agent(
   rolePrefix(ROLE.prAuthor)
     + "Write the PR/MR title and body for branch "
     + BRANCH_NAME
@@ -195,7 +211,7 @@ let prText = await agent(
     + "the body text). Structured output only.",
   prOpts,
 );
-if (prText === null) {
+if (prText === null && filesOk) {
   prText = await agent(
     rolePrefix(ROLE.prAuthor)
       + "Retry. Write the PR/MR title and body for branch "
@@ -216,7 +232,7 @@ if (prText === null) {
 }
 
 if (!prText) {
-  ship = { status: "blocked", detail: "pr-author returned null twice" };
+  ship = { status: "blocked", detail: filesOk ? "pr-author returned null twice" : "implement/review result file missing or empty" + (filesCheck && filesCheck.detail ? ": " + filesCheck.detail : "") };
 } else {
   const created = await agent(
     rolePrefix(ROLE.shipper)
