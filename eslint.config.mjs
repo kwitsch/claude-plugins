@@ -16,7 +16,6 @@ export default [
       "plugins/universal-format/**",
       "plugins/jevfort/**",
       "plugins/jev-api/**",
-      "plugins/jev-solver/**",
       "plugins/graphmind-helper/**",
       "plugins/rc-enhancement/**",
     ],
