@@ -89,6 +89,23 @@ for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH], ["IMPL
 // would otherwise pass a bare truthiness check — treat it as absent, same as "".
 const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_ROOT : "";
 
+// Tool availability is detected once in build-task/SKILL.md and threaded in
+// (.claude/rules/script-authoring.md §4); a hint is appended only when it was found.
+const REPO = typeof A.REPO_PATH === "string" ? A.REPO_PATH.trim() : "";
+const wantGraphmind = A.GRAPHMIND_AVAILABLE === true || A.GRAPHMIND_AVAILABLE === "true";
+const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
+if (wantGraphmind && !USE_GRAPHMIND) {
+  return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
+}
+const USE_JEV = A.JEV_AVAILABLE === true || A.JEV_AVAILABLE === "true";
+const jevHint = USE_JEV
+  ? ` Hint: jev-api is available. To sort a failing job into flaky/infra, code-caused or base-broken, load it with ToolSearch(query: "select:mcp__jev-api__choice") and call mcp__jev-api__choice with state = the failure log excerpt and criteria = {"flaky-infra": "transient or infrastructure failure, a rerun may pass", "code-caused": "the branch's change breaks it", "base-broken": "already red on the base branch"}. Use its choice only when confidence >= 0.6; otherwise decide yourself.`
+  : "";
+const gmHint = (purpose, project) =>
+  USE_GRAPHMIND
+    ? `\n\nHint: graphmind indexes this repository. Optionally load its tools with ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps") and use them ${purpose} rather than broad Grep/Read; pass project: ${project} on every call. Fall back to Read/Grep when a call errors or returns nothing.`
+    : "";
+
 const MODELS = {
   prAuthor: "haiku", // faithful writing from structured inputs + repo template
   shipper: "haiku", // pure git/gh/glab procedure (merger analogue)
@@ -271,7 +288,9 @@ if (!prText) {
           + created.url
           + ").\n"
           + "Bounded wait, classification, and failing-log collection per your role\n"
-          + "definition. Structured output only.",
+          + "definition."
+          + jevHint
+          + " Structured output only.",
         { label: "ci-monitor:" + round, phase: "Ship", schema: CI_RESULT, model: MODELS.ciMonitor },
       );
       if (!ci) {
@@ -300,7 +319,9 @@ if (!prText) {
           + JSON.stringify(ci.failedJobs || [])
           + "\n"
           + "Classification, fix scope, and hard limits per your role definition.\n"
-          + "Structured output only.",
+          + jevHint
+          + gmHint("to find the failing code and its callers", JSON.stringify(REPO))
+          + "\nStructured output only.",
         { label: "ci-fix:" + ship.ci.fixRounds, phase: "Ship", schema: CI_FIX_RESULT, model: MODELS.ciFixer },
       );
       if (!fix || fix.status === "blocked") {

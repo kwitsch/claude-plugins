@@ -36,14 +36,16 @@ role file is read: the script takes no `SKILL_DIR`.
 
 ## Parameters (`args` object)
 
-| Key           | Type   | Required | Meaning                                                                                                                                  |
-| :------------ | :----- | :------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
-| `SPEC_PATH`   | string | yes      | Absolute path of the user-approved spec file (reversal judgment, lean pass, fix-applier skip rule)                                       |
-| `PLAN_PATH`   | string | yes      | Absolute path of the plan file (design/plan context for the synthesizer)                                                                 |
-| `REVIEW_PATH` | string | yes      | Absolute temp path of the JSON result file this script writes (`review-<slug>.json`)                                                     |
-| `BRANCH_NAME` | string | yes      | Current work branch (`git branch --show-current`)                                                                                        |
-| `BASE_BRANCH` | string | no       | Branch the work branch was cut from. Default `main`. Drives the review diff `git diff <base>...HEAD`                                     |
-| `LEVEL`       | string | no       | Review depth, `high` (default) or `max`. Chosen by build-task from its size: `S`/`M` → `high`, `L`/`XL` → `max`. Never derived in-script |
+| Key                   | Type    | Required | Meaning                                                                                                                                                                                                                                 |
+| :-------------------- | :------ | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SPEC_PATH`           | string  | yes      | Absolute path of the user-approved spec file (reversal judgment, lean pass, fix-applier skip rule)                                                                                                                                      |
+| `PLAN_PATH`           | string  | yes      | Absolute path of the plan file (design/plan context for the synthesizer)                                                                                                                                                                |
+| `REVIEW_PATH`         | string  | yes      | Absolute temp path of the JSON result file this script writes (`review-<slug>.json`)                                                                                                                                                    |
+| `BRANCH_NAME`         | string  | yes      | Current work branch (`git branch --show-current`)                                                                                                                                                                                       |
+| `BASE_BRANCH`         | string  | no       | Branch the work branch was cut from. Default `main`. Drives the review diff `git diff <base>...HEAD`                                                                                                                                    |
+| `LEVEL`               | string  | no       | Review depth, `high` (default) or `max`. Chosen by build-task from its size: `S`/`M` → `high`, `L`/`XL` → `max`. Never derived in-script                                                                                                |
+| `GRAPHMIND_AVAILABLE` | boolean | no       | `false` (default). `true` ⇒ the fix applier (the finders and verifiers keep their fixed tool allowlists, so they get no hint) get a hint to use the graphmind MCP tools (`project` as given). Requires a non-empty absolute `REPO_PATH` |
+| `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                                                                                             |
 
 Guards: missing required keys, a `SPEC_PATH`, `PLAN_PATH` or `REVIEW_PATH`
 that is not an absolute path, or a `LEVEL` other than `high`/`max` return

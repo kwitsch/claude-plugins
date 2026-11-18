@@ -154,7 +154,7 @@ followed_by() { # <head> <next> <file>
     run rg_or_grep -F -- "$p" "$BT_WF/explore.md"
     [ "$status" -eq 0 ]
   done
-  for p in '`EXPLORE_PATH`' '`DRAFT_PATH`' '`SKILL_DIR`' '`SIZE`' '`RESUME`' '`USER_INPUT`' '`user_input_required`' '`minorFindings`' 'fable' 'graphmind is not used in this phase; `GRAPHMIND_AVAILABLE` and `REPO_PATH` are Explore-only'; do
+  for p in '`EXPLORE_PATH`' '`DRAFT_PATH`' '`SKILL_DIR`' '`SIZE`' '`RESUME`' '`USER_INPUT`' '`user_input_required`' '`minorFindings`' 'fable' '`GRAPHMIND_AVAILABLE` only adds a hint to the designer and design-reviewer prompts'; do
     run rg_or_grep -F -- "$p" "$BT_WF/design.md"
     [ "$status" -eq 0 ]
   done
@@ -1388,7 +1388,7 @@ mm_git_fixture() {
 
 @test "build-task SKILL.md step 4 runs plan, implement, review and ship with the documented args and one error rule" {
   F="$SKILL/SKILL.md"
-  for p in '{SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH}' '{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR}' '{SPEC_PATH, PLAN_PATH, REVIEW_PATH, BRANCH_NAME, BASE_BRANCH, LEVEL}' '{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, SKILL_DIR, PLUGIN_ROOT}' '`S` or `M` → `high`, `L` or `XL` → `max`' 'PR/MR skipped at the user' '`SIZE` picks the designer model, the planner model and the review level.' 'taskflow:review-finder' 'taskflow:review-verifier' 'taskflow:fix-applier' 'plannerModel' 'never retry the merge' 'half-implemented plan'; do
+  for p in '{SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}' '{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}' '{SPEC_PATH, PLAN_PATH, REVIEW_PATH, BRANCH_NAME, BASE_BRANCH, LEVEL, GRAPHMIND_AVAILABLE, REPO_PATH}' '{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, SKILL_DIR, PLUGIN_ROOT, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}' '`S` or `M` → `high`, `L` or `XL` → `max`' 'PR/MR skipped at the user' '`SIZE` picks the designer model, the planner model and the review level.' 'taskflow:review-finder' 'taskflow:review-verifier' 'taskflow:fix-applier' 'plannerModel' 'never retry the merge' 'half-implemented plan'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1475,5 +1475,24 @@ mm_git_fixture() {
   run rg_or_grep -F 'references/' "$PLUGIN/README.md"
   [ "$status" -ne 0 ]
   run rg_or_grep -F 'input of the plan script' "$BT_WF/spec.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "tool hints: scripts append graphmind/jev-api hints only when the skill detected the tool" {
+  for n in design implement review ship; do
+    run rg_or_grep -F 'const gmHint = (purpose, project) =>' "$BT_WF/$n.workflow.js"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' "$BT_WF/$n.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  for n in plan ship; do
+    run rg_or_grep -F 'A.JEV_AVAILABLE === true' "$BT_WF/$n.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  run rg_or_grep -F 'mcp__jev-api__score' "$BT_WF/plan.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'mcp__jev-api__choice' "$BT_WF/ship.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'JEV_AVAILABLE = true' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }

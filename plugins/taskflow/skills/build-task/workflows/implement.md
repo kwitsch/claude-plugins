@@ -33,13 +33,15 @@ agents.
 
 ## Parameters (`args` object)
 
-| Key              | Type   | Required | Meaning                                                                                                                                                                                 |
-| :--------------- | :----- | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PLAN_PATH`      | string | yes      | Absolute path of the plan file the plan script wrote (its `planPath`)                                                                                                                   |
-| `IMPLEMENT_PATH` | string | yes      | Absolute temp path of the JSON result file this script writes (`implement-<slug>.json`)                                                                                                 |
-| `BRANCH_NAME`    | string | yes      | Current work branch (`git branch --show-current`)                                                                                                                                       |
-| `SCRATCH_DIR`    | string | yes      | Absolute session-scratch directory, trailing slash included (build-task's `<session scratchpad>/build-task/`) — implementers write `test-evidence-task-<id>.txt` there for the reviewer |
-| `SKILL_DIR`      | string | yes      | Absolute path of build-task's skill directory; the merger role file is read from its `roles/`                                                                                           |
+| Key                   | Type    | Required | Meaning                                                                                                                                                                                                                                                 |
+| :-------------------- | :------ | :------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PLAN_PATH`           | string  | yes      | Absolute path of the plan file the plan script wrote (its `planPath`)                                                                                                                                                                                   |
+| `IMPLEMENT_PATH`      | string  | yes      | Absolute temp path of the JSON result file this script writes (`implement-<slug>.json`)                                                                                                                                                                 |
+| `BRANCH_NAME`         | string  | yes      | Current work branch (`git branch --show-current`)                                                                                                                                                                                                       |
+| `SCRATCH_DIR`         | string  | yes      | Absolute session-scratch directory, trailing slash included (build-task's `<session scratchpad>/build-task/`) — implementers write `test-evidence-task-<id>.txt` there for the reviewer                                                                 |
+| `SKILL_DIR`           | string  | yes      | Absolute path of build-task's skill directory; the merger role file is read from its `roles/`                                                                                                                                                           |
+| `GRAPHMIND_AVAILABLE` | boolean | no       | `false` (default). `true` ⇒ the implementers, per-task reviewers and fixers (`project` = their own checkout, `git rev-parse --show-toplevel`) get a hint to use the graphmind MCP tools (`project` as given). Requires a non-empty absolute `REPO_PATH` |
+| `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                                                                                                             |
 
 Guards: missing required keys, or a `PLAN_PATH`, `IMPLEMENT_PATH`,
 `SCRATCH_DIR` or `SKILL_DIR` that is not an absolute path return

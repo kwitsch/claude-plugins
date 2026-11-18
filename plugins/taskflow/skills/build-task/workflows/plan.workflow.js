@@ -85,6 +85,7 @@ if (wantGraphmind && !USE_GRAPHMIND) {
   return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 }
 
+const USE_JEV = A.JEV_AVAILABLE === true || A.JEV_AVAILABLE === "true";
 const MODELS = { planChecker: "sonnet" }; // coverage/consistency gate before Implement
 // Planner model is chosen per run from build-task's SIZE (S/M/L/XL).
 const PLAN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };
@@ -172,7 +173,11 @@ ${revision}
 `
       : ""
   }
-Return structured output: status, the '## Global Constraints' section verbatim
+${
+    USE_JEV
+      ? `\nHint: jev-api is available. To rate a task's complexity (trivial / standard / complex), load it with ToolSearch(query: "select:mcp__jev-api__score") and call mcp__jev-api__score with state = the task's title, files and interfaces and criteria = ["trivial: one small mechanical edit", "standard: a self-contained change", "complex: cross-cutting or judgment-heavy"]. Take the rounded score only when confidence >= 0.6; otherwise judge it yourself.\n`
+      : ""
+  }Return structured output: status, the '## Global Constraints' section verbatim
 as 'constraints', and the machine-readable tasks array as 'tasks'.`;
 
 const planCheckerPrompt = `${NO_NARRATION}

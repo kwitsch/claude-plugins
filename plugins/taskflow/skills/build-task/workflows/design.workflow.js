@@ -91,6 +91,19 @@ for (const [k, v] of [["EXPLORE_PATH", EXPLORE_PATH], ["DRAFT_PATH", DRAFT_PATH]
 if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESUME=true requires USER_INPUT (the answers to the previously returned questions)" };
 if (typeof SKILL_DIR !== "string" || !SKILL_DIR.startsWith("/")) return { status: "error", stage: "args", error: "SKILL_DIR must be an absolute path" };
 
+// Tool availability is detected once in build-task/SKILL.md and threaded in
+// (.claude/rules/script-authoring.md §4); a hint is appended only when it was found.
+const REPO = typeof A.REPO_PATH === "string" ? A.REPO_PATH.trim() : "";
+const wantGraphmind = A.GRAPHMIND_AVAILABLE === true || A.GRAPHMIND_AVAILABLE === "true";
+const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
+if (wantGraphmind && !USE_GRAPHMIND) {
+  return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
+}
+const gmHint = (purpose, project) =>
+  USE_GRAPHMIND
+    ? `\n\nHint: graphmind indexes this repository. Optionally load its tools with ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps") and use them ${purpose} rather than broad Grep/Read; pass project: ${project} on every call. Fall back to Read/Grep when a call errors or returns nothing.`
+    : "";
+
 const MODELS = { designReview: "sonnet" };
 // Designer model is chosen per run from build-task's SIZE (S/M/L/XL).
 const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };
@@ -173,7 +186,7 @@ Task:
 ${TASK}
 
 Draft file to write (create/overwrite): ${DRAFT_PATH}
-Open-question cap: ${MAX_OPEN_QUESTIONS} (2-4 options each).
+Open-question cap: ${MAX_OPEN_QUESTIONS} (2-4 options each).${gmHint("to verify the files, symbols and signatures the exploration reports mention", JSON.stringify(REPO))}
 Draft requirements, question bar, and self-review checklist per your role
 definition.
 ## Exploration reports
@@ -241,7 +254,7 @@ Draft to review: ${DRAFT_PATH}
 Apply your full checklist (role definition) against the codebase where
 needed. The draft builds on explorer reports from a lightweight model: verify
 that every file path, symbol and signature the draft relies on actually exists
-in the codebase, and flag any that do not as blocking. Structured output only.`;
+in the codebase, and flag any that do not as blocking.${gmHint("to check that those files, symbols and signatures exist", JSON.stringify(REPO))} Structured output only.`;
 
 async function reviewDesign(label) {
   const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: MODELS.designReview };

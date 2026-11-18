@@ -87,6 +87,19 @@ for (const [k, v] of [["PLAN_PATH", PLAN_PATH], ["IMPLEMENT_PATH", IMPLEMENT_PAT
 }
 
 // Fixed roles; the per-task implementer/reviewer scale with the task's complexity.
+// Tool availability is detected once in build-task/SKILL.md and threaded in
+// (.claude/rules/script-authoring.md §4); a hint is appended only when it was found.
+const REPO = typeof A.REPO_PATH === "string" ? A.REPO_PATH.trim() : "";
+const wantGraphmind = A.GRAPHMIND_AVAILABLE === true || A.GRAPHMIND_AVAILABLE === "true";
+const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
+if (wantGraphmind && !USE_GRAPHMIND) {
+  return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
+}
+const gmHint = (purpose, project) =>
+  USE_GRAPHMIND
+    ? `\n\nHint: graphmind indexes this repository. Optionally load its tools with ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps") and use them ${purpose} rather than broad Grep/Read; pass project: ${project} on every call. Fall back to Read/Grep when a call errors or returns nothing.`
+    : "";
+
 const MODELS = {
   loader: "haiku", // copies the task block out of the plan file through a schema
   merger: "haiku", // pure git command sequence, no judgment load
@@ -273,8 +286,9 @@ log("Wave plan: " + waves.map((w, i) => i + 1 + ":[" + w.join(",") + "]").join("
 // id (schema-typed number, but be defensive) — never the whole path, which
 // would mangle SCRATCH_DIR's separators.
 const tevPathFor = (t) => SCRATCH_DIR + "test-evidence-task-" + String(t.id).replace(/[^A-Za-z0-9._-]/g, "_") + ".txt";
+const GM_IMPL = (purpose) => gmHint(purpose, "<absolute path of your current checkout: `git rev-parse --show-toplevel`>");
 const implementerPrompt = (t, isolated) =>
-  `${NO_NARRATION}
+  `${NO_NARRATION}${GM_IMPL("to find the callers, signatures and related code of what you change")}
 
 You are the implementer for exactly one plan
 task, ${
@@ -303,7 +317,7 @@ deviation from the plan inline in deviations. Return through the structured
 output schema.`;
 
 const reviewerPrompt = (t, implReport, isolated) =>
-  `${NO_NARRATION}
+  `${NO_NARRATION}${GM_IMPL("to check callers and signatures of what the task touched")}
 
 You are a read-only reviewer for one
 plan task. Plan file: ${PLAN_PATH} — Read it; review ONLY task ${t.id}
@@ -326,7 +340,7 @@ the Read tool on it if you need it; do not re-run the tests the implementer
 already ran. Return your verdict through the structured output schema.`;
 
 const fixerPrompt = (t, findings, worktreePath, branch) =>
-  `${NO_NARRATION}
+  `${NO_NARRATION}${GM_IMPL("to find the code the findings point at and its callers")}
 
 You are the fixer
 for one reviewed plan task. You are on branch ${branch} at ${worktreePath} — run

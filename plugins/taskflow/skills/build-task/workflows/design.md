@@ -3,7 +3,7 @@
 Design pipeline, phase 2 of 3: Draft design → Design review → at most one
 revision round → recheck. Reads the exploration file the explore script wrote;
 exits with a decision-complete draft (`complete`) or pauses with open user
-questions (`user_input_required`, resumable any number of times). graphmind is not used in this phase; `GRAPHMIND_AVAILABLE` and `REPO_PATH` are Explore-only.
+questions (`user_input_required`, resumable any number of times). `GRAPHMIND_AVAILABLE` only adds a hint to the designer and design-reviewer prompts.
 
 ## Invocation
 
@@ -25,15 +25,17 @@ agent type); each reads its role definition by absolute path —
 
 ## Parameters (`args` object)
 
-| Key            | Type    | Required | Meaning                                                                                                                                          |
-| :------------- | :------ | :------- | :----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TASK`         | string  | yes      | The design task / work description (same text as the explore call)                                                                               |
-| `EXPLORE_PATH` | string  | yes      | Absolute path of the exploration file the explore script wrote — same path on every resume                                                       |
-| `DRAFT_PATH`   | string  | yes      | Absolute path of the draft file — the single persistent state between runs; same path on every resume                                            |
-| `SKILL_DIR`    | string  | yes      | Absolute path of build-task's skill directory; the role files are read from its `roles/`                                                         |
-| `SIZE`         | string  | no       | `''` (default). Task size `S` / `M` / `L` / `XL` from build-task's size step (case-insensitive); picks the designer model                        |
-| `RESUME`       | boolean | no       | `false` (default) on the first run; `true` when restarting with an existing draft + answers                                                      |
-| `USER_INPUT`   | string  | no       | `''` (default) on the first run; on resume: the answers to the previously returned questions — BINDING. Recommended shape: JSON `[{id, answer}]` |
+| Key                   | Type    | Required | Meaning                                                                                                                                                                    |
+| :-------------------- | :------ | :------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TASK`                | string  | yes      | The design task / work description (same text as the explore call)                                                                                                         |
+| `EXPLORE_PATH`        | string  | yes      | Absolute path of the exploration file the explore script wrote — same path on every resume                                                                                 |
+| `DRAFT_PATH`          | string  | yes      | Absolute path of the draft file — the single persistent state between runs; same path on every resume                                                                      |
+| `SKILL_DIR`           | string  | yes      | Absolute path of build-task's skill directory; the role files are read from its `roles/`                                                                                   |
+| `SIZE`                | string  | no       | `''` (default). Task size `S` / `M` / `L` / `XL` from build-task's size step (case-insensitive); picks the designer model                                                  |
+| `GRAPHMIND_AVAILABLE` | boolean | no       | `false` (default). `true` ⇒ the designer and the design reviewer get a hint to use the graphmind MCP tools (`project` as given). Requires a non-empty absolute `REPO_PATH` |
+| `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                                |
+| `RESUME`              | boolean | no       | `false` (default) on the first run; `true` when restarting with an existing draft + answers                                                                                |
+| `USER_INPUT`          | string  | no       | `''` (default) on the first run; on resume: the answers to the previously returned questions — BINDING. Recommended shape: JSON `[{id, answer}]`                           |
 
 Guards: missing required keys, `RESUME: true` without `USER_INPUT`, or a
 `SKILL_DIR` that is not an absolute path return `status: 'error', stage: 'args'`

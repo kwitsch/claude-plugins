@@ -88,6 +88,19 @@ for (const [k, v] of [["SPEC_PATH", SPEC_PATH], ["PLAN_PATH", PLAN_PATH], ["REVI
 }
 if (LEVEL !== "high" && LEVEL !== "max") return { status: "error", stage: "args", error: "LEVEL must be \"high\" or \"max\"" };
 
+// Tool availability is detected once in build-task/SKILL.md and threaded in
+// (.claude/rules/script-authoring.md §4); a hint is appended only when it was found.
+const REPO = typeof A.REPO_PATH === "string" ? A.REPO_PATH.trim() : "";
+const wantGraphmind = A.GRAPHMIND_AVAILABLE === true || A.GRAPHMIND_AVAILABLE === "true";
+const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
+if (wantGraphmind && !USE_GRAPHMIND) {
+  return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
+}
+const gmHint = (purpose, project) =>
+  USE_GRAPHMIND
+    ? `\n\nHint: graphmind indexes this repository. Optionally load its tools with ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps") and use them ${purpose} rather than broad Grep/Read; pass project: ${project} on every call. Fall back to Read/Grep when a call errors or returns nothing.`
+    : "";
+
 const MODELS = {
   scope: "haiku", // list diff, collect CLAUDE.md
   finder: "sonnet", // review finder (angles + lenses)
@@ -594,7 +607,8 @@ if (applicable.length > 0) {
       + "\n"
       + "Locate-by-content, skip rule, commit-by-category, and test gate per your\n"
       + "agent definition. Return through the structured output schema: applied\n"
-      + "indexes, skipped {index, reason}, and the commit hash(es).",
+      + "indexes, skipped {index, reason}, and the commit hash(es)."
+      + gmHint("to locate the symbols the findings point at", JSON.stringify(REPO)),
     { label: "apply-fixes", phase: "Apply", schema: APPLY_RESULT, model: MODELS.applier, agentType: AGENTS.applier },
   );
   if (applier) applyReport = applier;
