@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": { "node": true, "es2022": true },
+  "categories": { "correctness": "error" },
+  "ignorePatterns": [
+    "**/*.workflow.js",
+    "plugins/dprint/**",
+    "plugins/inline-headroom/**",
+    "plugins/universal-lint/**",
+    "plugins/universal-format/**",
+    "plugins/jevfort/**",
+    "plugins/jev-api/**",
+    "plugins/graphmind-helper/**",
+    "plugins/rc-enhancement/**"
+  ]
+}

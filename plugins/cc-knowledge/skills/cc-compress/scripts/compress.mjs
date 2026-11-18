@@ -145,7 +145,6 @@ function callClaude(prompt) {
  * @returns {string}
  */
 function buildCompressPrompt(original) {
-  /* eslint-disable max-len -- long line is part of the literal prompt string */
   return `Compress this markdown into caveman format.
 
 STRICT RULES:
@@ -161,7 +160,6 @@ Only compress natural language.
 TEXT:
 ${original}
 `;
-  /* eslint-enable max-len */
 }
 
 /**

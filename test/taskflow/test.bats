@@ -14,7 +14,7 @@ setup() {
   AGENTS_DIR="$PLUGIN/agents"
   WORKFLOWS="$PLUGIN/workflows"
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
-  ESLINT_CONFIG="$REPO_ROOT/eslint.config.mjs"
+  OXLINT_CONFIG="$REPO_ROOT/.oxlintrc.json"
   MERGE_SCRIPT="$PLUGIN/bin/ship-ensure-mergeable.sh"
 }
 
@@ -310,8 +310,8 @@ followed_by() { # <head> <next> <file>
   done
 }
 
-@test "eslint.config.mjs ignores *.workflow.js (top-level await/return, not a standalone module)" {
-  run rg_or_grep -F '*.workflow.js' "$ESLINT_CONFIG"
+@test ".oxlintrc.json ignores *.workflow.js (top-level await/return, not a standalone module)" {
+  run rg_or_grep -F '*.workflow.js' "$OXLINT_CONFIG"
   [ "$status" -eq 0 ]
 }
 

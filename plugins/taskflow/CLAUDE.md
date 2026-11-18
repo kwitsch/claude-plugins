@@ -49,7 +49,7 @@ No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.c
 
 ## Scoped notes elsewhere
 
-- Model assignment (incl. the size-driven designer and planner models), `NO_NARRATION` on inline prompts, the designer's `keypoints`/`openQuestions` separation, the `*.workflow.js` eslint exclusion (covers every `workflows/*.workflow.js`): `workflows/CLAUDE.md`.
+- Model assignment (incl. the size-driven designer and planner models), `NO_NARRATION` on inline prompts, the designer's `keypoints`/`openQuestions` separation, the `*.workflow.js` oxlint exclusion (covers every `workflows/*.workflow.js`): `workflows/CLAUDE.md`.
 - Script contracts, one per build-task script, in `skills/build-task/workflows/`: `explore.md`, `design.md`, `spec.md`, `plan.md`, `implement.md`, `review.md`, `ship.md`.
 - `dispatch-task` design decisions, `worktree.baseRef`, why the payload passes `--skip-branch-check`: `skills/dispatch-task/CLAUDE.md`.
 - SKILL.md plugin-root capture and `!`-injection rules: `.claude/rules/taskflow-skill-plugin-root-and-injection.md`.
