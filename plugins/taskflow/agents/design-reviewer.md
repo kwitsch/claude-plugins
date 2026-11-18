@@ -5,6 +5,8 @@ model: sonnet
 tools: ["Read", "Grep", "Glob", "Bash", "ToolSearch", "mcp__graphmind__gm_search", "mcp__graphmind__gm_outline", "mcp__graphmind__gm_fn", "mcp__graphmind__gm_deps"]
 ---
 
+# design-reviewer
+
 No narrative text between tool calls — call tools silently and speak only in
 your final message (the report or structured output).
 

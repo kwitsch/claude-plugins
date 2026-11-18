@@ -102,7 +102,7 @@ Entries are abbreviated navigation labels, not verbatim `##` headings — real h
 
 ### claude-code-skills-reference.md
 
-```
+```text
 What a skill is / when to choose it
 Discovery & progressive disclosure (mechanics)
 Frontmatter reference (Claude Code)        # incl. Command-name mapping
@@ -127,7 +127,7 @@ Version / surface notes
 
 ### claude-code-agents-reference.md
 
-```
+```text
 What a subagent is / when to choose it     # incl. Decision matrix
 Built-in subagents
 Scope & precedence
@@ -155,7 +155,7 @@ Version notes
 
 ### claude-code-hooks-reference.md
 
-```
+```text
 Model: three nesting levels
 Hook locations / scope
 Event catalog (cadence + when)
@@ -174,7 +174,7 @@ Version gates
 
 ### hook-handler-selection.md
 
-```
+```text
 Handler types
 Decision rules — evaluate top→bottom, first match wins
 Type comparison
@@ -186,7 +186,7 @@ Quick map
 
 ### claude-code-mcp-tool-hooks-reference.md
 
-```
+```text
 When to use mcp_tool vs a command hook
 Hook fields
 Server name — the namespacing rule (gotcha)
@@ -197,7 +197,7 @@ Version notes
 
 ### claude-code-commands-reference.md
 
-```
+```text
 What a slash command is / when vs a skill
 Locations & precedence
 Frontmatter reference
@@ -211,7 +211,7 @@ Version notes
 
 ### claude-code-mcp-reference.md
 
-```
+```text
 What MCP is / when to use
 Config locations & scopes
 Transports
@@ -225,7 +225,7 @@ Version notes
 
 ### claude-code-mcp-managed-reference.md
 
-```
+```text
 managed-mcp.json — exclusive control
 Allowlists and denylists
 Evaluation order
@@ -237,7 +237,7 @@ Version notes
 
 ### claude-code-plugins-reference.md
 
-```
+```text
 What a plugin is / components
 Plugin structure & layout
 plugin.json schema
@@ -254,14 +254,14 @@ Version notes
 
 ### claude-code-plugins-marketplace-reference.md
 
-```
+```text
 marketplace.json schema                # incl. Required/Optional top-level fields, Plugin entry fields, Plugin source types
 Validate marketplace
 ```
 
 ### claude-code-plugins-lsp-reference.md
 
-```
+```text
 What LSP servers provide
 Scopes                                 # plugin-scoped only; project-root .lsp.json not loaded; skills-dir trust
 Server entry schema
@@ -271,7 +271,7 @@ Official LSP plugins
 
 ### claude-code-memory-reference.md
 
-```
+```text
 CLAUDE.md: what & when
 Locations & precedence
 Imports                                    # @path syntax, recursion depth, home-dir imports
@@ -283,7 +283,7 @@ Version notes
 
 ### claude-code-settings-reference.md
 
-```
+```text
 settings.json: locations & scope precedence
 Settings keys
 Environment variables
@@ -298,7 +298,7 @@ Version notes
 
 ### skill-folder-structure.md
 
-```
+```text
 Skill directory layout
 Convention: one supporting file vs many → references/
 Example (this skill)

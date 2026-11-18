@@ -289,7 +289,7 @@ Two marketplaces pointing at different `ref`s/`sha`s of the same plugin repo act
 
 A CLI/SDK running inside Claude Code can emit a hint tag to stderr to prompt installation of its companion plugin from the official Anthropic marketplace. Applies only to plugins listed in `claude-plugins-official` or another marketplace with one of Anthropic's official marketplace names; `claude-community` is not one.
 
-```
+```text
 <claude-code-hint v="1" type="plugin" value="<plugin-name>@claude-plugins-official" />
 ```
 

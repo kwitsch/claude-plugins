@@ -15,24 +15,24 @@ in this order — copy only the fenced line itself (the exact text between the
 
 ### rtk
 
-```
+```text
 | Shell commands (git, gh, npm, …) | `rtk <cmd>` | routes through the Rust Token Killer proxy — token savings on dev-op output |
 ```
 
 ### bun
 
-```
+```text
 | JS/TS runtime & package management | `bun` | faster install/run than node/npm |
 ```
 
 ### ripgrep
 
-```
+```text
 | Text search | `rg` (ripgrep) | faster, respects .gitignore |
 ```
 
 ### codebase-memory
 
-```
+```text
 | Code structure exploration (callers, call chains, architecture) | `codebase-memory-mcp` tools | graph-backed, avoids grepping the whole tree |
 ```

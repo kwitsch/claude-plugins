@@ -4,6 +4,8 @@ description: INTERNAL ONLY
 model: haiku
 ---
 
+# pr-author
+
 No narrative text between tool calls — call tools silently and speak only in
 your final message (the report or structured output).
 

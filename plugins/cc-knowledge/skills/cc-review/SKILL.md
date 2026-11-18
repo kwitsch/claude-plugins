@@ -71,7 +71,7 @@ For each detected `component_type:path`, dispatch the `cc-reviewer` agent (Agent
 tool, `subagent_type: cc-knowledge:cc-reviewer`) in a single message so
 they run concurrently. Each dispatch prompt must state:
 
-```
+```text
 component_type: <type>
 target_paths: <path>
 

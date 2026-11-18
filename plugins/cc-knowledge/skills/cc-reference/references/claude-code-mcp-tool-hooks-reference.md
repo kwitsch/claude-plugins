@@ -145,7 +145,7 @@ emit exit code 2.
 
 Back the hook with a plugin-local server (no `bin/`, no wrapper):
 
-```
+```text
 plugins/<name>/
   mcp/server.mjs   # zero-dep MCP stdio server (chmod +x; bun-preferred, node fallback)
   .mcp.json        # { "mcpServers": { "<name>-hooks": { "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" } } }

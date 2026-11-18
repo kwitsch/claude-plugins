@@ -109,7 +109,7 @@ precedence rule.
 
 Question 1 (always asked):
 
-```
+```text
 question: "Should the golden-rules rule be installed?"
 header:   "Golden-rules rule (this machine) [currently: <installed|not installed>]"
 multiSelect: false
@@ -124,7 +124,7 @@ Question 2 — include **only if** `tools_installed` is true, or `detected` is
 non-empty (otherwise there is nothing meaningful to install and no existing
 file to offer removing, so omit this question entirely):
 
-```
+```text
 question: "Should the tool-routing rule be installed?"
 header:   "Tool-routing rule (this machine) [currently: <installed|not installed>]"
 multiSelect: false

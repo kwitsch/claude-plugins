@@ -70,7 +70,7 @@ Why the limits (documented Claude Code behavior):
 
 ## Plugin layout
 
-```
+```text
 plugins/<name>/
   mcp/server.mjs     # self-contained, zero-dep MCP stdio server (executable .mjs: #!/usr/bin/env node + chmod +x)
   .mcp.json          # registers "example-hooks" with command: "…/mcp/server.mjs" (direct — no wrapper, no args)

@@ -6,6 +6,8 @@ color: red
 tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash"]
 ---
 
+# pr-fixer
+
 ## Input
 
 Your dispatch prompt contains: a JSON list of CI failures (`job`, `cause`,
