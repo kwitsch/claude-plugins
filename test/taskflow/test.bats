@@ -281,10 +281,10 @@ followed_by() { # <head> <next> <file>
   done
 }
 
-@test "build-task design-pipeline scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types, clean comments" {
+@test "build-task scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types (review excepted), clean comments" {
   run bash -c "ls '$BT_WF'/*.workflow.js | wc -l | tr -d '[:space:]'"
-  [ "$output" = "3" ]
-  for n in explore design spec; do
+  [ "$output" = "4" ]
+  for n in explore design spec plan; do
     f="$BT_WF/$n.workflow.js"
     [ -s "$f" ]
     run rg_or_grep -F 'export const meta = {' "$f"
@@ -299,10 +299,16 @@ followed_by() { # <head> <next> <file>
     [ "$status" -eq 0 ]
     run rg_or_grep -E "stage:[[:space:]]*[\"']args[\"']" "$f"
     [ "$status" -eq 0 ]
-    for absent in 'agentType: AGENTS.' 'taskflow:' 'Date.now()' 'Math.random()' 'new Date()'; do
+    for absent in 'Date.now()' 'Math.random()' 'new Date()'; do
       run rg_or_grep -F -- "$absent" "$f"
       [ "$status" -ne 0 ]
     done
+    if [ "$n" != review ]; then
+      for absent in 'agentType: AGENTS.' 'taskflow:'; do
+        run rg_or_grep -F -- "$absent" "$f"
+        [ "$status" -ne 0 ]
+      done
+    fi
     run rg_or_grep -E '^import ' "$f"
     [ "$status" -ne 0 ]
     run rg_or_grep -cE '[äöüßÄÖÜ]' "$f"
@@ -1292,5 +1298,34 @@ mm_git_fixture() {
   for p in 'repo-explorer' 'EXPLORE_TOOL_AVAILABLE' 'explore_repository'; do
     run grep -rniF "$p" "$PLUGIN"
     [ "$status" -eq 1 ]
+  done
+}
+
+# --- build-task delivery scripts (plan, implement, review, ship) ---
+
+@test "plan.workflow.js: SIZE-keyed planner model, planner role file, no classifier, status exit contract" {
+  F="$BT_WF/plan.workflow.js"
+  [ -s "$F" ]
+  for p in 'name: "build-task-plan"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "SKILL_DIR"]' 'const PLAN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const plannerModel = (s) => PLAN_MODEL[String(s).toUpperCase()] || "opus";' 'let PLANNER_MODEL = plannerModel(SIZE);' 'model: PLANNER_MODEL' 'planChecker: "sonnet"' 'if (PLANNER_MODEL !== "fable") throw e;' 'PLANNER_MODEL = "opus";' 'if (PLANNER_MODEL === "fable") {' 'planner on fable returned null' '+ "/roles/planner.md"' 'Read your role definition at ${ROLE.planner} first and follow it exactly.' 'role definition carries the full plan requirements' 'planCheckerPrompt = `${NO_NARRATION}' 'GRAPHMIND_AVAILABLE' 'mcp__graphmind__gm_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' 'must be an absolute path' 'return { status: "complete", planPath: PLAN_PATH, plannerModel: PLANNER_MODEL };' 'stage: "Plan", error: planned.reason, planPath: PLAN_PATH, plannerModel: PLANNER_MODEL'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  followed_by 'plannerPrompt = (revision) =>' '`${NO_NARRATION}' "$F"
+  for absent in 'agentType' 'classify' 'CLASSIFY_SCHEMA' 'difficulty' 'PINNED_OPUS' 'agent definition' 'stage: "done"' 'hardest'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "plan.md documents the plan script contract and the size-to-model table" {
+  F="$BT_WF/plan.md"
+  [ -s "$F" ]
+  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`SKILL_DIR`' '`SIZE`' '`GRAPHMIND_AVAILABLE`' '`REPO_PATH`' '`planPath`' '`plannerModel`' 'fable' 'S sonnet / M opus / L opus / XL fable' 'roles/planner.md' '## Contents' '## Preconditions'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  for absent in 'claude-opus-4-8' 'spec-driven-delivery' 'design-to-spec'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
   done
 }
