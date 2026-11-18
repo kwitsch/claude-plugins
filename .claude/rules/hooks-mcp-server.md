@@ -157,7 +157,7 @@ section (its `CLAUDE.md` in kwitsch/claude-plugins-development) is the worked ex
 - Known caveats: empty PATH segment, lingering signal forwarder.
 - Append, never prepend, the user dirs: `export PATH="${PATH:+${PATH}:}${HOME:-}/.local/bin:${HOME:-}/.bun/bin"`.
   The inherited PATH wins, so a stale user-dir binary never shadows a canonical one. The same holds for
-  command-hook PATH helpers (`npm-automations` `pathWithLocalBin`).
+  command-hook PATH helpers.
 - Do not "restore" a wrapper for a plugin that intentionally invokes its `.mjs`
   directly.
 

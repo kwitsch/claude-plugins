@@ -18,9 +18,6 @@ jobs:
         # Add a plugin here when it gains a test/<plugin>/test.bats suite.
         plugin:
           - cc-knowledge
-          - coding-toolbox
-          - memory-enhancement
-          - npm-automations
           - taskflow
     steps:
       - name: Checkout
