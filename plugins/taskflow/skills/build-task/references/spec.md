@@ -37,18 +37,18 @@ One structured object; `status` is the discriminator. Consume only this return.
 
 ### `status: 'complete'`
 
-| Field           | Meaning                                                                                                                                                                            |
-| :-------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `specPath`      | The finished spec (all draft decisions carried over, no open questions, `## Global Constraints` included)                                                                          |
-| `specReviewed`  | `true` unless the spec reviewer failed twice (both attempts returned null) — `false` means the spec shipped without the completeness/ambiguity gate; note this in the final report |
-| `minorFindings` | Array of non-blocking spec-review findings — for the final report                                                                                                                  |
+| Field           | Meaning                                                                                                                                                                                       |
+| :-------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `specPath`      | The finished spec (all draft decisions carried over, no open questions, `## Global Constraints` included)                                                                                     |
+| `specReviewed`  | `true` unless the first-pass spec reviewer failed twice (both attempts returned null) — `false` means the spec shipped without the completeness/ambiguity gate; note this in the final report |
+| `minorFindings` | Array of non-blocking spec-review findings — for the final report                                                                                                                             |
 
 ### `status: 'error'`
 
-| `stage` | Meaning                                                                     | Action                                                          |
-| :------ | :-------------------------------------------------------------------------- | :-------------------------------------------------------------- |
-| `args`  | Invocation malformed, or `args global is undefined`                         | Fallback for `args global is undefined`; otherwise fix the call |
-| `Spec`  | Spec writer null/blocked twice, or blocking findings survived the fix round | Surface `error` + `draftPath`, stop                             |
+| `stage` | Meaning                                                                                                                                 | Action                                                          |
+| :------ | :-------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------- |
+| `args`  | Invocation malformed, or `args global is undefined`                                                                                     | Fallback for `args global is undefined`; otherwise fix the call |
+| `Spec`  | Spec writer null/blocked twice, blocking findings survived the fix round, or the recheck reviewer returned null twice after a fix round | Surface `error` + `draftPath`, stop                             |
 
 ## Behavior notes
 

@@ -175,7 +175,11 @@ if (specCheck && !specCheck.approved) {
       return { status: "error", stage: "Spec", error: "spec writer failed during fix round", draftPath: DRAFT_PATH };
     }
     specCheck = await reviewSpec("spec-recheck");
-    if (specCheck && !specCheck.approved && specCheck.findings.some((f) => f.severity === "blocking")) {
+    // Fail closed: blocking findings were found, so an unreviewed fix must not exit complete.
+    if (!specCheck) {
+      return { status: "error", stage: "Spec", draftPath: DRAFT_PATH, error: "spec recheck reviewer returned null twice after a fix round for blocking findings" };
+    }
+    if (!specCheck.approved && specCheck.findings.some((f) => f.severity === "blocking")) {
       return {
         status: "error",
         stage: "Spec",
