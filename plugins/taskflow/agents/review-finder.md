@@ -1,10 +1,6 @@
 ---
 name: review-finder
-description: >
-  INTERNAL. Invoked by taskflow's spec-driven-delivery workflow and the
-  changes-review workflow. Do not delegate to this agent directly; if the user
-  asks for a code review, run /taskflow:build-task or /taskflow:changes-audit
-  instead.
+description: INTERNAL ONLY
 model: sonnet
 tools: ["Read", "Grep", "Glob", "Bash"]
 ---

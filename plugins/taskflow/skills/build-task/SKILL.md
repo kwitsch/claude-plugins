@@ -3,7 +3,7 @@ name: build-task
 description: >-
   End-to-end pipeline for a described task: design (explore, draft, review,
   spec) and delivery (plan, wave-parallel implementation, combined review,
-  fix application), both executed by prebuilt Workflow scripts shipped with this skill. Human
+  fix application, ship), all executed by prebuilt Workflow scripts shipped with this skill. Human
   checkpoints: open design questions and spec approval, via AskUserQuestion.
 argument-hint: "[--skip-branch-check] [task-description]"
 arguments: task_description
@@ -13,21 +13,33 @@ allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "As
 # build-task
 
 Runs the feature-development pipeline (Design → Intent confirmation → Plan →
-Implement → Review) for `$task_description`, with the heavy phases executed by
-two dynamic workflows this plugin ships in its `workflows/` directory
-(auto-discovered; they run as `/taskflow:design-to-spec` and
-`/taskflow:spec-driven-delivery`). One usage reference per workflow —
-parameters, exit contract, behavior — lives beside this file; read the
+Implement → Review → Ship) for `$task_description`, with the heavy phases
+executed by Workflow scripts. All seven are single-purpose scripts shipped in
+this skill's `workflows/` directory and run by `scriptPath` (they are not
+plugin workflows): the design pipeline — explore, design, spec — and the
+delivery pipeline — plan, implement, review, ship. One usage reference per
+script — parameters, exit contract, behavior — lives beside it; read the
 relevant one BEFORE each invocation:
 
-- [references/design-to-spec.md](references/design-to-spec.md) —
-  Explore → Draft design → Design review → Write spec → Spec review. Exits
-  `complete` (spec written) or `user_input_required` (draft persisted + open
-  user questions, resumable).
-- [references/spec-driven-delivery.md](references/spec-driven-delivery.md)
-  — Plan → wave-parallel Implement (worktree/merge rules per wave size are in
-  the reference) → combined Review → fix application. Findings that would
-  reverse an approved-spec decision come back unapplied as `escalatedToUser`.
+- [workflows/explore.md](workflows/explore.md) — scout → read-only
+  explorers → exploration reports written to `EXPLORE_PATH`. Exits `complete`
+  (path + explored subsystems) or `error`.
+- [workflows/design.md](workflows/design.md) — Draft design → Design review
+  → one revision round. Exits `complete` (draft decision-complete) or
+  `user_input_required` (draft persisted + open user questions, resumable).
+- [workflows/spec.md](workflows/spec.md) — Write spec → Spec review → one
+  fix round. Exits `complete` (spec written) or `error`.
+- [workflows/plan.md](workflows/plan.md) — Plan → plan check → one revision
+  round. Exits `complete` (plan written to `PLAN_PATH`) or `error`.
+- [workflows/implement.md](workflows/implement.md) — wave-parallel Implement
+  (worktree/merge rules per wave size are in the reference). Exits `complete`
+  (result file + per-task results) or `error` (hard stop).
+- [workflows/review.md](workflows/review.md) — combined Review → fix
+  application. Findings that would reverse an approved-spec decision come
+  back unapplied as `escalatedToUser`.
+- [workflows/ship.md](workflows/ship.md) — push, PR/MR create-or-update, CI
+  watch with bounded fix rounds. Returns a `ship` object; ship problems are
+  reportable states, not errors.
 
 Runs inline because it invokes the Workflow tool directly — do NOT fork it.
 **No Task-list integration**: the long-running work lives inside the
@@ -53,9 +65,9 @@ a redundant check.
 
 Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
-Capture the `Plugin root:` value above and pass it to the delivery workflow
-as `PLUGIN_ROOT` (step 4) — agents cannot read `$CLAUDE_PLUGIN_ROOT` inside a
-Bash-tool subprocess, so the workflow builds the absolute
+Capture the `Plugin root:` value above and pass it to the ship script
+as `PLUGIN_ROOT` (step 4.4) — agents cannot read `$CLAUDE_PLUGIN_ROOT` inside a
+Bash-tool subprocess, so the script builds the absolute
 `bin/ship-ensure-mergeable.sh` path from it and hands it to shipper. This is
 a plain **pre-injection text substitution** (the same mechanism as
 `${CLAUDE_SKILL_DIR}`, per `.claude/rules/script-authoring.md`) — resolved
@@ -71,6 +83,16 @@ plugin context, or an unresolved literal `${CLAUDE_PLUGIN_ROOT}` token) →
 pass it through unchanged; shipper degrades to `mergeState: 'unknown'` and
 skips remediation (the pre-fix loop still runs).
 
+Skill dir: ${CLAUDE_SKILL_DIR}
+
+Capture the `Skill dir:` value above too: `SKILL_DIR` = `<Skill dir>`
+(absolute). The scripts all live under `<SKILL_DIR>/workflows/`:
+`explore.workflow.js`, `design.workflow.js`, `spec.workflow.js`,
+`plan.workflow.js`, `implement.workflow.js`, `review.workflow.js` and
+`ship.workflow.js`. Same pre-injection substitution and the same rule as the
+plugin root above: no load-time shell injection, never the
+exclamation-backtick sequence.
+
 ## Session temp files
 
 Every pipeline file is session-only, never a repository file:
@@ -84,55 +106,54 @@ Every pipeline file is session-only, never a repository file:
   branch is already checked out; otherwise kebab-case from
   `$task_description`, ≤40 chars (then also names the worktree directory and
   its `feature/<slug>` branch, step 1).
-- **Files:** `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md` — record
-  and hand the workflows **absolute paths**, never inlined content. Always
-  written in English by the designer/spec-writer/planner agents, regardless
-  of `$task_description`'s language — these files are read only by other
-  agents in the pipeline, never shown to the user directly.
+- **Files:** `explore-<slug>.md` (`EXPLORE_PATH`), `draft-<slug>.md`
+  (`DRAFT_PATH`), `spec-<slug>.md` (`SPEC_PATH`), `plan-<slug>.md`
+  (`PLAN_PATH`), `implement-<slug>.json` (`IMPLEMENT_PATH`),
+  `review-<slug>.json` (`REVIEW_PATH`), `pr-body-<slug>.md` (`PR_BODY_PATH`)
+  — record and hand the workflows **absolute paths**, never inlined content.
+  The Markdown pipeline files are always written in English by the explore
+  scribe and the designer/spec-writer/planner agents, regardless of
+  `$task_description`'s language — these files are read only by other agents
+  in the pipeline, never shown to the user directly. The skill never Reads these files; it
+  passes their absolute paths to the workflows and uses only the structured
+  returns. `SCRATCH_DIR` is this directory itself (absolute, trailing slash
+  included) — passed to the implement script only.
 - **Never commit them.** Durable artifacts are the branch and its commits.
   State in commit/PR descriptions when design context matters.
 
-## Workflow invocation rules (both scripts)
+## Workflow invocation rules (all scripts)
 
 1. **Probe once:** `ToolSearch(query: "select:Workflow")`. Tool absent, or a
    script is rejected with a meta/API validation error → stop and report.
    This skill deliberately has **no Agent-engine fallback** — the workflows
    are the engine.
-2. **Primary — invoke by name with `args`:** both scripts live in this
-   plugin's root `workflows/` directory and are auto-discovered, so they run
-   namespaced by the plugin name, displayed as `/taskflow:design-to-spec` and
-   `/taskflow:spec-driven-delivery` (the prefix follows the manifest
-   `name`). The `Workflow` tool's `name` parameter takes that identifier
-   WITHOUT the leading `/` — `taskflow:design-to-spec` /
-   `taskflow:spec-driven-delivery`; a leading `/` makes the tool report the
-   name as not found (confirmed live). Pass the inputs as ONE structured
-   `args` object — the script
-   reads it as the `args` global; keys and return contract are documented in
-   the per-workflow reference files linked above. Structured data, so task
-   text and user answers need no string escaping. The runtime may deliver
-   the object serialized as a JSON string — the templates' `decodeArgs`
-   parses that transparently, so a `stage: 'args'` return always means a
-   genuinely malformed payload: fix the call, never switch to the fallback
-   for it.
-3. **Fallback — ad-hoc script with prepended args:** only if the named
-   invocation is unavailable (workflow not registered in this install), Read
-   the template from `${CLAUDE_PLUGIN_ROOT}/workflows/<name>.workflow.js`
-   (plugin-root substitution — the templates live at the plugin root, not
-   inside this skill),
-   prepend exactly one line after the `meta` block — `const args = { … }`
-   as a JSON object literal — and send the whole text via the `script`
-   parameter. NEVER pass the tool-level `args` parameter on an ad-hoc
-   `{script}` call: the global arrives `undefined` there (docs scope `args`
-   to saved workflows; twice-observed silent total failure). The templates'
-   `decodeArgs` guard turns a wrong invocation into an immediate structured
-   error. Note: the fallback still requires this plugin to be loaded —
-   the scripts dispatch the plugin's `agents/` roles via namespaced
-   `agentType` (`taskflow:<name>`), and an unknown type throws hard at
+2. **Invoke by `scriptPath` with `args`:**
+   `Workflow({scriptPath: "<SKILL_DIR>/workflows/<name>.workflow.js", args})` with
+   `<name>` = `explore`, `design`, `spec`, `plan`, `implement`, `review` or
+   `ship`, and ONE structured `args` object — the script reads it as the
+   `args` global; keys and return contract are in the per-script reference
+   files linked above. Structured data, so task text and user answers need no
+   string escaping. The runtime may deliver the object serialized as a JSON
+   string — the scripts' `decodeArgs` parses that transparently.
+3. **Fallback — ad-hoc script with prepended args:** when a return is
+   `stage: 'args'` and its `error` starts with `args global is undefined`:
+   Read the script — `<SKILL_DIR>/workflows/<name>.workflow.js` — prepend
+   exactly one line after the `meta` block — `const args = { … }` as a JSON
+   object literal — and send the whole text via the `script` parameter. NEVER
+   pass the tool-level `args` parameter on an ad-hoc `{script}` call: the
+   global arrives `undefined` there. Once the undefined-args fallback
+   triggered, use it for every later script call in this invocation. Any
+   other `stage: 'args'` error means a genuinely malformed payload — fix the
+   call, never switch to the fallback for it. Note: the review script
+   dispatches the plugin agents `taskflow:review-finder`,
+   `taskflow:review-verifier` and `taskflow:fix-applier`, so this plugin must
+   be loaded on both invocation paths — an unknown agent type throws hard at
    dispatch.
 4. **Consume only the structured return.** Never re-derive workflow state
    from transcript output; the return object is the contract. A return with
-   `stage: 'args'` means the invocation itself was malformed — fix the call,
-   do not debug the pipeline.
+   `stage: 'args'` means the invocation itself was malformed — fix the call
+   (or apply rule 3 for `args global is undefined`), do not debug the
+   pipeline.
 
 ## Steps
 
@@ -173,75 +194,133 @@ Every pipeline file is session-only, never a repository file:
    way — after the switch when (b) ran — capture `BRANCH_NAME` =
    `git branch --show-current` and `REPO_PATH` =
    `git rev-parse --show-toplevel` (absolute repo root) — also on the
-   `--skip-branch-check` path (`dispatch-task` always passes it): both
-   workflows (steps 2 and 4) fail loud with `stage:'args'` on an empty
-   `REPO_PATH` whenever graphmind is available.
-2. **Design.** First probe once whether graphmind is usable for this checkout:
-   (a) `ToolSearch(query: "select:mcp__graphmind__gm_search")` — the tool's
-   schema present in the result; and (b) run `graphmind which` via Bash — exit 0
-   (it prints the registered project slug; exit 1 when the checkout is not
-   registered). Both ⇒
-   `GRAPHMIND_AVAILABLE = true`; no schema, `graphmind` not found, or exit 1 ⇒
-   `false`. Compute this once per `build-task` invocation and reuse the same
-   value for the initial call, every resume re-run below, and step 4 (a value
-   held in this running skill — never written to a file; no cross-run
-   caching). Then run the design workflow (invocation rules above) with args
-   `{TASK: $task_description, DRAFT_PATH, SPEC_PATH, RESUME: false,
-   USER_INPUT: '', GRAPHMIND_AVAILABLE, REPO_PATH}` (paths from the temp
-   directory; `REPO_PATH` from step 1). Then by `status`:
-   - `user_input_required` → one `AskUserQuestion` call covering the returned
-     `questions` (their `options` verbatim as choices; free text arrives via
-     "Other"; use `whyItMatters` as the question context). Re-run the
-     workflow with args `RESUME: true`, the **same** `DRAFT_PATH`,
-     `USER_INPUT` = the answers as `[{id, answer}]`, and the same
-     `GRAPHMIND_AVAILABLE` + `REPO_PATH` as the initial call. Repeat this bullet
-     until `complete` or `error` — new genuine questions after a resume are
-     expected, not a failure.
-   - `error` → surface `stage`, `error`, and `draftPath`, then stop.
-   - `complete` with `specReviewed: false` → note it for the final report
-     (step 5): the spec shipped without its completeness/ambiguity gate
-     because the reviewer failed twice.
+   `--skip-branch-check` path (`dispatch-task` always passes it): the explore
+   script and the plan script (steps 2 and 4) fail loud with
+   `stage:'args'` on an empty `REPO_PATH` whenever graphmind is available.
+2. **Design.** Four sub-steps; paths come from the temp directory above.
+   1. **Graphmind probe.** Probe once whether graphmind is usable for this
+      checkout: (a) `ToolSearch(query: "select:mcp__graphmind__gm_search")` —
+      the tool's schema present in the result; and (b) run `graphmind which`
+      via Bash — exit 0 (it prints the registered project slug; exit 1 when
+      the checkout is not registered). Both ⇒ `GRAPHMIND_AVAILABLE = true`; no
+      schema, `graphmind` not found, or exit 1 ⇒ `false`. Compute this once
+      per `build-task` invocation and reuse the same value for the explore,
+      design and step 4 calls (a value held in this running skill — never written to
+      a file; no cross-run caching).
+   2. **Explore.** Run the explore script (invocation rules above) with args
+      `{TASK: $task_description, EXPLORE_PATH, GRAPHMIND_AVAILABLE, REPO_PATH}`
+      (`REPO_PATH` from step 1). `error` → surface `stage` and `error`, then
+      stop. `complete` → keep `explorePath` and `subsystems`. Explore runs
+      once per invocation; resumes and corrections never re-run it.
+   3. **Size** (once per invocation; reused on every resume and correction
+      re-run). `ToolSearch(query: "select:mcp__jev-api__score")`. Schema
+      returned ⇒ `JEV_AVAILABLE = true` (tool availability only — independent
+      of whether the size answer below is accepted), otherwise `false`; hold it
+      like `GRAPHMIND_AVAILABLE`. Schema returned → call `mcp__jev-api__score` with `state` = the task text plus
+      one line per returned subsystem (`<name> — <focus>`),
+      `instructions: "How large is the work?"` and `criteria` = these four
+      strings, in this order:
+      - `S: a few lines in one place`
+      - `M: one component`
+      - `L: several functionalities, modules or subprojects`
+      - `XL: cross-cutting or architectural`
+
+      Accept when the result parses as JSON with `type: "score"`, a numeric
+      `score` and `confidence >= 0.6`: `SIZE` = `["S","M","L","XL"][Math.round(score)]`
+      (index clamped to 0..3); print one line `Size: <X> (jev-api, confidence <c>)`.
+      Otherwise — no schema, a result string starting with `score:`,
+      unparsable, or lower confidence — decide `SIZE` yourself against the
+      same four criteria from the same inputs and print one line
+      `Size: <X> (own reasoning: <reason>)`. No retry loop; sizing never
+      fails the run. `SIZE` picks the designer model, the planner model and the review level.
+   4. **Design.** Run the design script with args
+      `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
+      Then by `status`:
+      - `user_input_required` → one `AskUserQuestion` call covering the
+        returned `questions` (their `options` verbatim as choices; free text
+        arrives via "Other"; use `whyItMatters` as the question context).
+        Re-run the design script with `RESUME: true`, the **same**
+        `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR`, `SIZE`, `GRAPHMIND_AVAILABLE`
+        and `REPO_PATH`, and `USER_INPUT` = the answers as `[{id, answer}]` (a JSON value, never
+        `[object Object]`). Repeat this bullet until `complete` or `error` —
+        new genuine questions after a resume are expected, not a failure.
+      - `error` → surface `stage`, `error`, and `draftPath`, then stop.
+      - `complete` → keep `keypoints` and the design `minorFindings`.
+   5. **Spec.** Run the spec script with args `{DRAFT_PATH, SPEC_PATH}`.
+      `error` → surface `stage`, `error`, and `draftPath`, then stop.
+      `complete` with `specReviewed: false` → note it for the final report
+      (step 5): the spec shipped without its completeness/ambiguity gate
+      because the reviewer failed twice. Keep the spec `minorFindings`.
 3. **Intent confirmation.** Read nothing aloud from memory: output the
-   returned `keypoints` verbatim as your own plain-text message (the user has
-   never seen the temp files), then `AskUserQuestion`: does this match their
-   intent, proceed to implementation? Options: **Yes — proceed** / **No —
-   needs changes** (specific corrections arrive via "Other"). "No" picked
-   without detail → one clarifying `AskUserQuestion` round for what should
-   change; never guess. With corrections in hand → re-run the design workflow
-   with `RESUME = true`, `USER_INPUT` = the corrections, and the same
-   `GRAPHMIND_AVAILABLE` + `REPO_PATH` as before (the workflow records the
-   corrections as binding USER DECISIONs and rewrites draft + spec), then
-   re-ask this step from the new keypoints. Only after "Yes" does the spec
-   count as **approved** — this is the pipeline's one human checkpoint on the
-   design.
-4. **Deliver.** Run the delivery workflow (invocation rules above) with args
-   `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT, SCRATCH_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
-   (`SCRATCH_DIR` is the same session-temp directory from "Session temp files"
-   above, trailing slash included — the delivery workflow's pr-author/
-   implementer agents write their own scratch files there for
-   shipper/reviewer to read back; add `SHIP: false`
-   only if the user asked not to open a PR/MR). The workflow ships on its
-   own — push, PR/MR create-or-update, CI watch with bounded fix rounds; the
-   returned `ship` object carries url and CI outcome. On an error return
-   (`stage: 'Plan' | 'Implement' | 'Review'`): surface stage, reason, and the
-   partial `results`, then stop — a failed task or wave-merge conflict is a
-   hard stop; never retry the merge, never resolve a conflict, and never
-   continue on a half-implemented plan (its `taskResults` name any abandoned
-   worktrees/branches or left-behind commits for manual cleanup).
+   `keypoints` from the last design return verbatim as your own plain-text
+   message (the user has never seen the temp files), then `AskUserQuestion`:
+   does this match their intent, proceed to implementation? Options: **Yes —
+   proceed** / **No — needs changes** (specific corrections arrive via
+   "Other"). "No" picked without detail → one clarifying `AskUserQuestion`
+   round for what should change; never guess. With corrections in hand →
+   re-run step 2.4 (design script) with `RESUME: true`, `USER_INPUT` = the
+   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SKILL_DIR`, `SIZE`,
+   `GRAPHMIND_AVAILABLE` and `REPO_PATH` (the script records the corrections as binding USER DECISIONs and
+   rewrites the draft; handle its return as in step 2.4), then step 2.5 (spec
+   script), then re-ask this step from the new keypoints. Explore and Size are
+   not re-run. Only after "Yes" does the spec count as **approved** — this is
+   the pipeline's one human checkpoint on the design.
+4. **Deliver.** Four sub-steps, each: read the reference, run the script
+   (invocation rules above), branch on `status`. Paths come from the temp
+   directory above.
+   1. **Plan.** Run the plan script with args
+      `{SPEC_PATH, PLAN_PATH, SKILL_DIR, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`
+      (`SIZE` and `JEV_AVAILABLE` from step 2.3, the graphmind flag from step 2.1). `complete` →
+      keep `plannerModel`.
+   2. **Implement.** Run the implement script with args
+      `{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, SKILL_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
+      (`SCRATCH_DIR` is the session-temp directory from "Session temp files"
+      above, trailing slash included — implementers write their test-evidence
+      files there for the per-task reviewer). `complete` → keep `tasks`,
+      `waves` and the implement `minorFindings`.
+   3. **Review.** Derive `LEVEL` from the step-2.3 `SIZE` (no further jev-api
+      call): `S` or `M` → `high`, `L` or `XL` → `max`; print one line
+      `Review level: <level> (size <X>)`. Run the review script with args
+      `{SPEC_PATH, PLAN_PATH, REVIEW_PATH, BRANCH_NAME, BASE_BRANCH, LEVEL, GRAPHMIND_AVAILABLE, REPO_PATH}`.
+      `complete` → keep `level`, `summary`, `findingCount`, `applied`,
+      `escalatedToUser` and `ponytailReview`.
+   4. **Ship.** Skip this sub-step when the user asked not to open a PR/MR
+      (`$task_description` or a later message says so) — there is no ship arg
+      for it; step 5 then reports "PR/MR skipped at the user's request".
+      Otherwise run the ship script with args
+      `{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, SKILL_DIR, PLUGIN_ROOT, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`.
+      It pushes, creates or updates the PR/MR and watches CI with bounded fix
+      rounds; keep the returned `ship` object (url, CI outcome). Ship problems
+      are reportable `ship.status` values, not errors.
+
+   The one error rule for all four sub-steps: **a Review error that carries
+   `applied`/`escalatedToUser` → run step 5 (escalations + report) and skip
+   Ship; any other `status: "error"` (any stage) → surface `stage`, `error`
+   and the returned `tasks`/`results`, then stop.** Stop means stop: a failed
+   task or wave-merge conflict is a hard stop — never retry the merge, never
+   resolve a conflict, and never continue on a half-implemented plan (the
+   implement return's `results` are the per-task `taskResults` and name any
+   abandoned worktrees/branches or left-behind commits for manual cleanup).
 5. **Escalations & report.** Terminal step.
-   1. For each `escalatedToUser` finding (review fixes the workflow refused
-      to auto-apply because they would reverse an approved-spec decision):
-      group related findings into one `AskUserQuestion` (apply / skip).
-      Apply the accepted ones yourself (Read → Edit; locate by content — line
-      numbers are advisory), commit them as one commit per repo conventions
-      (no co-author trailers), then `git push` — the PR/MR the workflow
-      opened updates automatically. Never silently apply a decision-reversing
-      fix.
-   2. Report one short summary: wave layout, per-task results (id, model,
-      status), review level + findings applied / skipped / escalated, the
+   1. For each `escalatedToUser` finding of the review return (review fixes
+      the script refused to auto-apply because they would reverse an
+      approved-spec decision): group related findings into one
+      `AskUserQuestion` (apply / skip). Apply the accepted ones yourself
+      (Read → Edit; locate by content — line numbers are advisory), commit
+      them as one commit per repo conventions (no co-author trailers), then —
+      when Ship ran — `git push`: the PR/MR the ship script opened updates
+      automatically. Never silently apply a decision-reversing fix.
+   2. Report one short summary: the `Size:` line, the planner model
+      (`plannerModel` from the plan return), wave layout and per-task results
+      (id, model, status — `waves` and `tasks` from the implement return),
+      the `Review level:` line + findings applied / skipped / escalated
+      (`level`, `applied`, `escalatedToUser` from the review return), the
       lean-review (`ponytailReview`) over-engineering findings (report-only,
-      not applied), the collected minor findings (implement per-task, review,
-      design/spec), the commit hashes from `applied.commits` plus any
-      escalation commit, and the `ship` outcome (PR/MR url, CI status; on
-      `ci_failed`/`blocked` state plainly what the human must pick up).
-      Merging the PR/MR is not this skill's job.
+      not applied), the collected minor findings (the implement return's
+      `minorFindings`, design — from the last design return — and spec — from
+      the last spec return), the commit hashes from `applied.commits` plus
+      any escalation commit, and the `ship` outcome from the ship return
+      (PR/MR url, CI status; on `ci_failed`/`blocked` state plainly what the
+      human must pick up) — or "PR/MR skipped at the user's request", or,
+      when the review result file could not be written, that Ship was skipped
+      for that reason. Merging the PR/MR is not this skill's job.
