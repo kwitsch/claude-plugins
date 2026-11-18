@@ -117,7 +117,7 @@ const EXPLORE_SCHEMA = {
 const WRITE_RESULT = {
   type: "object",
   required: ["status"],
-  properties: { status: { enum: ["written", "blocked"] }, detail: { type: "string" } },
+  properties: { status: { enum: ["written", "blocked"] }, detail: { type: "string" }, bytes: { type: "integer" } },
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -254,13 +254,18 @@ if (USE_GRAPHMIND) {
 
 // ── Scribe: persist the reports (the script itself has no FS access, and the
 //    skill must never hold the exploration text) ─────────────────────────────
-const scribePrompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${EXPLORE_PATH} (create/overwrite) with the Write tool, byte for byte — no edits, no summary, markers excluded. Then return structured output: status "written" (or "blocked" + detail if the write failed).\n<<<BEGIN>>>\n# Exploration reports\n\nTask:\n${TASK}\n\n${explorationBlock}\n<<<END>>>`;
+const scribeText = `# Exploration reports\n\nTask:\n${TASK}\n\n${explorationBlock}`;
+// UTF-8 byte length of the text the scribe must write; a truncating or paraphrasing scribe misses it.
+const expectedBytes = encodeURIComponent(scribeText).replace(/%[0-9A-F]{2}/g, "x").length;
+const scribePrompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${EXPLORE_PATH} (create/overwrite) with the Write tool, byte for byte — no edits, no summary, markers excluded. Then run \`wc -c < ${EXPLORE_PATH}\` and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${scribeText}\n<<<END>>>`;
 
+// The file is intact only when its size matches (a trailing newline is tolerated).
+const isIntact = (w) => w && w.status === "written" && (w.bytes === expectedBytes || w.bytes === expectedBytes + 1);
 const scribeOpts = { label: "scribe", phase: "Explore", schema: WRITE_RESULT, model: MODELS.scribe };
 let written = await agent(scribePrompt, scribeOpts);
-if (!written || written.status !== "written") written = await agent(scribePrompt, { ...scribeOpts, label: "scribe:retry" });
-if (!written || written.status !== "written") {
-  return { status: "error", stage: "Explore", error: "scribe could not write EXPLORE_PATH" };
+if (!isIntact(written)) written = await agent(scribePrompt, { ...scribeOpts, label: "scribe:retry" });
+if (!isIntact(written)) {
+  return { status: "error", stage: "Explore", error: "scribe could not write EXPLORE_PATH intact (expected " + expectedBytes + " bytes, got " + (written ? written.bytes : "null") + ")" };
 }
 
 log("Exit: exploration written to " + EXPLORE_PATH);

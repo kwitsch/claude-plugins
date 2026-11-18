@@ -49,10 +49,10 @@ One structured object; `status` is the discriminator. Consume only this return.
 
 ### `status: 'error'`
 
-| `stage`   | Meaning                                                                                                               | Action                                                                  |
-| :-------- | :-------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------- |
-| `args`    | Invocation malformed, or `args global is undefined` (threading quirk)                                                 | Fallback for `args global is undefined`; otherwise fix the call         |
-| `Explore` | Scout returned no result, all explorers returned null, or the scribe could not write `EXPLORE_PATH` (after one retry) | Surface `stage` + `error` and stop; no file path is passed on to Design |
+| `stage`   | Meaning                                                                                                                                  | Action                                                                  |
+| :-------- | :--------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------- |
+| `args`    | Invocation malformed, or `args global is undefined` (threading quirk)                                                                    | Fallback for `args global is undefined`; otherwise fix the call         |
+| `Explore` | Scout returned no result, all explorers returned null, or the scribe could not write `EXPLORE_PATH` intact (size check, after one retry) | Surface `stage` + `error` and stop; no file path is passed on to Design |
 
 ## Behavior notes
 
@@ -62,5 +62,7 @@ One structured object; `status` is the discriminator. Consume only this return.
   explorer report, and — graphmind path only, when memory recall found
   anything — `## Recorded project knowledge (graphmind memory)`.
 - Models: scout, explorers, memory recall and scribe on the `haiku` alias.
-- The scribe copies the text through a model: a failed write is caught (one
-  retry, then `stage: 'Explore'`), a silent alteration is not.
+- The scribe copies the text through a model: a failed or truncated write is
+  caught (it reports `wc -c` of the file; the script compares it with the
+  expected UTF-8 byte length, one retry, then `stage: 'Explore'`). A same-size
+  alteration is not caught.
