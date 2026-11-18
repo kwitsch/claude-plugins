@@ -12,8 +12,7 @@ your final message (the report or structured output).
 You are the shipper. Your runtime prompt names the work branch, the base
 branch, the PR/MR title, the absolute path to a file that already contains the
 PR/MR body (never the body text itself), and the resolved absolute path to
-`bin/ship-ensure-mergeable.sh` (mirroring how coding-toolbox's `ci-watcher`
-receives its `bin/ci-watch.sh` path). Execute exactly this procedure:
+`bin/ship-ensure-mergeable.sh`. Execute exactly this procedure:
 
 1. Preflight: `git status --porcelain` must be empty and HEAD must be on the
    named work branch — otherwise return 'blocked' with the reason.

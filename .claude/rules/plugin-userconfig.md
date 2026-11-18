@@ -23,7 +23,7 @@ ONLY literal `false` disables a feature. All of the following count as enabled:
 
 Toggles whose enabled state creates files or external state must be fail-closed: only literal `true` enables — e.g. a toggle that auto-creates a folder or pushes to a remote. An uninterpolated placeholder must NEVER create files or external state.
 
-"State-creating" means the toggle's own hook/tool directly writes files or external state. A toggle that only gates an `additionalContext` nudge (the model or user still decides the write, e.g. `memory-enhancement`'s `auto_dream`) stays fail-open: unset resolves to the declared `default`.
+"State-creating" means the toggle's own hook/tool directly writes files or external state. A toggle that only gates an `additionalContext` nudge (the model or user still decides the write) stays fail-open: unset resolves to the declared `default`.
 
 ## configure-* skill sync
 

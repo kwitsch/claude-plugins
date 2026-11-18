@@ -20,7 +20,7 @@ paths:
 
 ## Data files
 
-Larger case sets live in data files next to the suite (e.g. `coding-toolbox/encoding-guard-corpus.json`). Do not inline large case sets in `.bats`.
+Larger case sets live in data files next to the suite. Do not inline large case sets in `.bats`.
 
 ## Manifest assertions
 
@@ -46,5 +46,4 @@ CLIs on `PATH`, redirect `$HOME`/`TMPDIR`) apply identically.
 `bats <dir>` (CI's own invocation) runs every `.bats` file in a directory, so an
 oversized suite splits into one file per thematic group with no CI change. Only
 helpers shared by 2+ groups go into `test_helper.bash` (`load 'test_helper'`);
-each file still declares its own `setup()`. Worked example and rationale:
-`test/coding-toolbox/CLAUDE.md`.
+each file still declares its own `setup()`.
