@@ -236,10 +236,15 @@ make_stub() {
 }
 
 @test "update-cc-references allowed-tools include fetch + edit + release tools" {
-  for tool in Workflow Read Edit Write Glob Bash Skill; do
+  for tool in Workflow Read Edit Write Glob Bash; do
     run rg_or_grep -E "^allowed-tools:.*$tool" "$MAINT"
     [ "$status" -eq 0 ]
   done
+  run rg_or_grep -E "^allowed-tools:.*(Skill|WebSearch)" "$MAINT"
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$MAINT")" -lt 150 ]
+  [ "$(rg_or_grep -cF 'node ${CLAUDE_SKILL_DIR}/refresh.mjs' "$MAINT")" -ge 2 ]
+  [ -f "$REPO_ROOT/.claude/skills/update-cc-references/refresh.reference.md" ]
 }
 
 @test "update-cc-references never falls back to WebFetch for content" {
