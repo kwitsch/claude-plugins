@@ -9,7 +9,6 @@ setup() {
   SKILL="$PLUGIN/skills/build-task"
   DISPATCH="$PLUGIN/skills/dispatch-task"
   CHANGES_AUDIT="$PLUGIN/skills/changes-audit"
-  REFS="$SKILL/references"
   BT_WF="$SKILL/workflows"
   BT_ROLES="$SKILL/roles"
   AGENTS_DIR="$PLUGIN/agents"
@@ -118,11 +117,11 @@ followed_by() { # <head> <next> <file>
   done
 }
 
-@test "all seven usage reference files exist and are non-empty; design-to-spec.md is gone" {
+@test "all seven usage reference files exist and are non-empty; the references/ directory is gone" {
   for f in workflows/explore.md workflows/design.md workflows/spec.md workflows/plan.md workflows/implement.md workflows/review.md workflows/ship.md; do
     [ -s "$SKILL/$f" ]
   done
-  [ ! -e "$REFS/design-to-spec.md" ]
+  [ ! -e "$SKILL/references" ]
 }
 
 @test "build-task SKILL.md runs all seven scripts by scriptPath and sizes the task (jev-api or own reasoning)" {
@@ -167,22 +166,21 @@ followed_by() { # <head> <next> <file>
 # --- workflows/ ---
 
 @test "the plugin workflow scripts exist and declare export const meta" {
-  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
+  for f in changes-review.workflow.js; do
     [ -s "$WORKFLOWS/$f" ]
     run rg_or_grep -F 'export const meta = {' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
   done
+  [ ! -e "$WORKFLOWS/spec-driven-delivery.workflow.js" ]
 }
 
 @test "workflow meta names match their filenames" {
-  run rg_or_grep -E "name:[[:space:]]*[\"']spec-driven-delivery[\"']" "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
   run rg_or_grep -E "name:[[:space:]]*[\"']changes-review[\"']" "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "workflow scripts guard args via a decodeArgs fail-fast" {
-  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
+  for f in changes-review.workflow.js; do
     run rg_or_grep -F 'function decodeArgs' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "stage:[[:space:]]*[\"']args[\"']" "$WORKFLOWS/$f"
@@ -191,7 +189,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "workflow scripts contain no leftover German comments" {
-  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
+  for f in changes-review.workflow.js; do
     run rg_or_grep -cE '[äöüßÄÖÜ]' "$WORKFLOWS/$f"
     [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
     # ASCII-only German (no diacritics, e.g. "// wenn ..."): scan comment text
@@ -202,22 +200,14 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "every agentType referenced by the workflows has a matching agents/*.md file" {
-  for f in spec-driven-delivery.workflow.js changes-review.workflow.js; do
-    for name in $(rg_or_grep -oE "taskflow:[a-z-]+" "$WORKFLOWS/$f" | sed 's/taskflow://' | sort -u); do
+  for f in "$WORKFLOWS/changes-review.workflow.js" "$BT_WF/review.workflow.js"; do
+    for name in $(rg_or_grep -oE "taskflow:[a-z-]+" "$f" | sed 's/taskflow://' | sort -u); do
       [ -f "$AGENTS_DIR/$name.md" ]
     done
   done
 }
 
 @test "the plugin workflow scripts forbid narrative text in every inline (non-agentType) prompt" {
-  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'planCheckerPrompt = `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  for p in 'implementerPrompt = (t, isolated) =>' 'reviewerPrompt = (t, implReport, isolated) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>'; do
-    followed_by "$p" '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  done
-  followed_by 'NO_NARRATION' '+ "\n\n' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
   followed_by 'NO_NARRATION' '+ "\n\n' "$WORKFLOWS/changes-review.workflow.js"
@@ -323,18 +313,18 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "designer role file and planner agent require English output regardless of input language" {
+@test "designer and planner role files require English output regardless of input language" {
   run rg_or_grep -iF 'English' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'English' "$AGENTS_DIR/planner.md"
+  run rg_or_grep -iF 'English' "$BT_ROLES/planner.md"
   [ "$status" -eq 0 ]
 }
 
 # --- agents ---
 
-AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer"
+AGENT_NAMES="review-finder review-verifier fix-applier"
 
-@test "all 9 agent files exist with matching name frontmatter" {
+@test "all 3 agent files exist with matching name frontmatter" {
   for a in $AGENT_NAMES; do
     [ -f "$AGENTS_DIR/$a.md" ]
     run rg_or_grep -E "^name:[[:space:]]*$a\$" "$AGENTS_DIR/$a.md"
@@ -342,21 +332,9 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
   done
 }
 
-@test "all agent files declare a model; planner on opus, the recall-critical roles on sonnet, the rest haiku" {
+@test "all agent files declare a model; the three review agents run on sonnet" {
   for a in $AGENT_NAMES; do
-    run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
-    [ "$status" -eq 0 ]
-    case "$a" in
-      planner)
-        run rg_or_grep -E '^model: opus$' "$AGENTS_DIR/$a.md"
-        ;;
-      review-finder | review-verifier | fix-applier | ci-fixer)
-        run rg_or_grep -E '^model: sonnet$' "$AGENTS_DIR/$a.md"
-        ;;
-      *)
-        run rg_or_grep -E '^model: haiku$' "$AGENTS_DIR/$a.md"
-        ;;
-    esac
+    run rg_or_grep -E '^model: sonnet$' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
   done
 }
@@ -385,7 +363,7 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 }
 
 @test "read-only-declared agents carry a least-privilege tools allowlist without Write/Edit" {
-  for a in review-finder review-verifier ci-monitor; do
+  for a in review-finder review-verifier; do
     run rg_or_grep -E '^tools:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "^tools:.*[[:space:],\\[\\]\"'](Write|Edit)([[:space:],\\[\\]\"']|\$)" "$AGENTS_DIR/$a.md"
@@ -403,9 +381,9 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 }
 
 @test "worktree-merger checks the current branch before merging, not primary-vs-worktree" {
-  run rg_or_grep -F 'Before merging anything' "$AGENTS_DIR/worktree-merger.md"
+  run rg_or_grep -F 'Before merging anything' "$BT_ROLES/worktree-merger.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'not a worktree' "$AGENTS_DIR/worktree-merger.md"
+  run rg_or_grep -iF 'not a worktree' "$BT_ROLES/worktree-merger.md"
   [ "$status" -ne 0 ]
 }
 
@@ -457,11 +435,11 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
 }
 
 @test "ci-monitor collects a rerunId per failed job; ci-fixer consumes it" {
-  run rg_or_grep -F 'rerunId' "$AGENTS_DIR/ci-monitor.md"
+  run rg_or_grep -F 'rerunId' "$BT_ROLES/ci-monitor.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'rerunId' "$AGENTS_DIR/ci-fixer.md"
+  run rg_or_grep -F 'rerunId' "$BT_ROLES/ci-fixer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'rerunId' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'rerunId' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -472,38 +450,30 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
   [ "$status" -eq 0 ]
 }
 
-@test "spec-driven-delivery workflow guards agent array fields before iterating" {
-  run rg_or_grep -F 'r.verdicts || []' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+@test "review script guards agent array fields before iterating" {
+  run rg_or_grep -F 'r.verdicts || []' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'Array.isArray(r.candidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'Array.isArray(r.candidates)' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'Array.isArray(sweep.candidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'Array.isArray(sweep.candidates)' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 # --- Model assignment: unpinned family aliases + difficulty classifier ---
 
-@test "workflow model tiers are unpinned to bare aliases with the classifier maps present" {
-  run rg_or_grep -F 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' "$BT_WF/design.workflow.js"
+@test "workflow model tiers are unpinned to bare aliases with the size-keyed model maps present" {
+  for p in 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' 'model: DESIGNER_MODEL'; do
+    run rg_or_grep -F -- "$p" "$BT_WF/design.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  for p in 'const PLAN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const plannerModel = (s) => PLAN_MODEL[String(s).toUpperCase()] || "opus";' 'model: PLANNER_MODEL'; do
+    run rg_or_grep -F -- "$p" "$BT_WF/plan.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  run bash -c "grep -l 'PINNED_OPUS' '$BT_WF'/*.workflow.js '$WORKFLOWS'/*.workflow.js || true"
+  [ "$output" = "" ]
+  run rg_or_grep -F 'synthesizer: "opus"' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' "$BT_WF/design.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'model: DESIGNER_MODEL' "$BT_WF/design.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -ne 0 ]
-  run rg_or_grep -F 'synthesizer: "opus"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'complex: "opus"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const PLAN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const plannerModel = (d) => PLAN_MODEL[d] || "opus"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'model: PLANNER_MODEL' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const PINNED_OPUS' "$WORKFLOWS/changes-review.workflow.js"
-  [ "$status" -ne 0 ]
   run rg_or_grep -F 'synthesizer: "opus"' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
 }
@@ -524,42 +494,18 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
   [ "$status" -eq 0 ]
 }
 
-@test "spec-driven-delivery runs a haiku spec classifier before makePlan and resolves the planner model from it" {
-  run rg_or_grep -F 'required: ["difficulty"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'difficulty: { enum: ["simple", "complex", "hardest"] }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'classifyPrompt = `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'label: "classify"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'model: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'agentType: "Explore"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'let PLANNER_MODEL = plannerModel(classify && classify.difficulty)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "spec-driven-delivery planner dispatch falls back from fable to opus on a throw" {
-  run rg_or_grep -F 'if (PLANNER_MODEL !== "fable") throw e;' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'PLANNER_MODEL = "opus";' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
 @test "sonnet and haiku workflow assignments stay bare aliases" {
   run rg_or_grep -F 'explorer: "haiku"' "$BT_WF/explore.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'merger: "haiku"' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'planChecker: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'planChecker: "sonnet"' "$BT_WF/plan.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'finder: "sonnet"' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'applier: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'applier: "sonnet"' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -579,19 +525,15 @@ AGENT_NAMES="planner review-finder review-verifier worktree-merger fix-applier p
   [ "$status" -eq 0 ]
 }
 
-@test "README Agents table and the design/delivery references drop the pinned model ID for size/classifier phrasing" {
-  run rg_or_grep -F 'claude-opus-4-8' "$PLUGIN/README.md"
-  [ "$status" -ne 0 ]
-  run rg_or_grep -F 'claude-opus-4-8' "$BT_WF/design.md"
-  [ "$status" -ne 0 ]
-  run rg_or_grep -F 'claude-opus-4-8' "$REFS/spec-driven-delivery.md"
-  [ "$status" -ne 0 ]
-  run rg_or_grep -F 'fable' "$PLUGIN/README.md"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'fable' "$BT_WF/design.md"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'fable' "$REFS/spec-driven-delivery.md"
-  [ "$status" -eq 0 ]
+@test "README and the design/delivery usage references carry no pinned model ID and name fable" {
+  for f in "$PLUGIN/README.md" "$BT_WF/design.md" "$BT_WF/plan.md" "$BT_WF/implement.md" "$BT_WF/review.md" "$BT_WF/ship.md"; do
+    run rg_or_grep -F 'claude-opus-4-8' "$f"
+    [ "$status" -ne 0 ]
+  done
+  for f in "$PLUGIN/README.md" "$BT_WF/design.md" "$BT_WF/plan.md"; do
+    run rg_or_grep -F 'fable' "$f"
+    [ "$status" -eq 0 ]
+  done
 }
 
 @test "no claude-opus-4-8 pin survives anywhere in the plugin" {
@@ -939,35 +881,35 @@ mm_git_fixture() {
 # ─────────────────────────────────────────────────────────────────────────────
 
 @test "SHIP_RESULT declares optional mergeState enum; status enum unchanged" {
-  run rg_or_grep -F 'mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] }' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
   # mergeState is NOT required
-  run rg_or_grep -F 'required: ["status"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'required: ["status"]' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
-@test "workflow decodes PLUGIN_ROOT and threads the script path into the shipper prompt" {
-  run rg_or_grep -F 'PLUGIN_ROOT' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+@test "ship script decodes PLUGIN_ROOT and threads the script path into the shipper prompt" {
+  run rg_or_grep -F 'PLUGIN_ROOT' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'created.mergeState' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'created.mergeState' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
-@test "workflow final ship comment documents the optional mergeState field" {
-  run rg_or_grep -F 'mergeState?' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+@test "ship script's final ship comment documents the optional mergeState field" {
+  run rg_or_grep -F 'mergeState?' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "shipper references the remediation script, platform merge-state fields, and mergeState return" {
-  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$BT_ROLES/shipper.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'mergeStateStatus' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F 'mergeStateStatus' "$BT_ROLES/shipper.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'detailed_merge_status' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F 'detailed_merge_status' "$BT_ROLES/shipper.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'mergeState' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F 'mergeState' "$BT_ROLES/shipper.md"
   [ "$status" -eq 0 ]
 }
 
@@ -1001,9 +943,9 @@ mm_git_fixture() {
   [ "$output" = "" ]
 }
 
-@test "the agent roster is exactly 9 *.md files" {
+@test "the agent roster is exactly 3 *.md files" {
   run bash -c "ls '$AGENTS_DIR'/*.md | wc -l | tr -d '[:space:]'"
-  [ "$output" = "9" ]
+  [ "$output" = "3" ]
 }
 
 @test "plugin README and layout document the changes-audit skill and changes-review workflow" {
@@ -1037,49 +979,42 @@ mm_git_fixture() {
 # §1 — PR/MR body handoff to a session-scratch file (pr-author → shipper).
 # ─────────────────────────────────────────────────────────────────────────────
 
-@test "workflow decodes SCRATCH_DIR as a required arg, not derived from PLAN_PATH" {
-  run rg_or_grep -F 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME", "SCRATCH_DIR"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'PLAN_PATH.slice(0, PLAN_PATH.lastIndexOf("/") + 1)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -ne 0 ]
-}
-
 @test "build-task passes SCRATCH_DIR to the delivery workflow" {
   run rg_or_grep -F 'SCRATCH_DIR' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "PR_TEXT schema hands off bodyPath, not an inline body" {
-  run rg_or_grep -F 'bodyPath: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'bodyPath: { type: "string" }' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'required: ["title", "bodyPath"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'required: ["title", "bodyPath"]' "$BT_WF/ship.workflow.js"
   [ "$status" -eq 0 ]
   # word-boundary form: a plain -F "prText.body" would substring-match the
   # surviving prText.bodyPath and never pass post-conversion.
-  run rg_or_grep -e 'prText\.body\b' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -e 'prText\.body\b' "$BT_WF/ship.workflow.js"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F '<<<BODY' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F '<<<BODY' "$BT_WF/ship.workflow.js"
   [ "$status" -ne 0 ]
 }
 
 @test "shipper reads the PR/MR body from a file, never retyping it" {
-  run rg_or_grep -F -- '--body-file' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F -- '--body-file' "$BT_ROLES/shipper.md"
   [ "$status" -eq 0 ]
   # capital -F reads the file byte-exactly; lowercase -f body= must be gone.
-  run rg_or_grep -F -- '-F body=@' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F -- '-F body=@' "$BT_ROLES/shipper.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F -- '-f body=' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F -- '-f body=' "$BT_ROLES/shipper.md"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F -- '--description "$(cat' "$AGENTS_DIR/shipper.md"
+  run rg_or_grep -F -- '--description "$(cat' "$BT_ROLES/shipper.md"
   [ "$status" -eq 0 ]
 }
 
 @test "pr-author writes the body to a file via redirection and returns bodyPath" {
-  run rg_or_grep -F 'bodyPath' "$AGENTS_DIR/pr-author.md"
+  run rg_or_grep -F 'bodyPath' "$BT_ROLES/pr-author.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'Bash redirection' "$AGENTS_DIR/pr-author.md"
+  run rg_or_grep -iF 'Bash redirection' "$BT_ROLES/pr-author.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'Return the title and body through the structured output schema' "$AGENTS_DIR/pr-author.md"
+  run rg_or_grep -F 'Return the title and body through the structured output schema' "$BT_ROLES/pr-author.md"
   [ "$status" -ne 0 ]
 }
 
@@ -1089,38 +1024,38 @@ mm_git_fixture() {
 # ─────────────────────────────────────────────────────────────────────────────
 
 @test "IMPL_RESULT hands off testEvidencePath, not an inline testEvidence transcript" {
-  run rg_or_grep -F 'testEvidencePath: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'testEvidencePath: { type: "string" }' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '"testEvidencePath", "deviations"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F '"testEvidencePath", "deviations"' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
   # bare `testEvidence` is a substring of the new field — absence-check the exact
   # OLD required-array + property strings instead of the bare token.
-  run rg_or_grep -F '"worktreePath", "testEvidence", "deviations"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F '"worktreePath", "testEvidence", "deviations"' "$BT_WF/implement.workflow.js"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F 'testEvidence: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'testEvidence: { type: "string" }' "$BT_WF/implement.workflow.js"
   [ "$status" -ne 0 ]
 }
 
 @test "implementer keeps its pinned prompt head and redirects test evidence to the derived path" {
-  run followed_by 'implementerPrompt = (t, isolated) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run followed_by 'implementerPrompt = (t, isolated) =>' '`${NO_NARRATION}' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'tevPathFor' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'tevPathFor' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'test-evidence-task-' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'test-evidence-task-' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'Bash redirection' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -iF 'Bash redirection' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "reviewer reads test evidence from the file named by testEvidencePath" {
-  run followed_by 'reviewerPrompt = (t, implReport, isolated) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run followed_by 'reviewerPrompt = (t, implReport, isolated) =>' '`${NO_NARRATION}' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'named by testEvidencePath' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'named by testEvidencePath' "$BT_WF/implement.workflow.js"
   [ "$status" -eq 0 ]
 }
 
-@test "spec-driven-delivery isolates and merges only multi-task waves" {
-  WF="$WORKFLOWS/spec-driven-delivery.workflow.js"
+@test "implement script isolates and merges only multi-task waves" {
+  WF="$BT_WF/implement.workflow.js"
   for p in 'isolated ? { isolation: "worktree" } : {}' 'runTask(waveTasks[0], false)' 'runTask(t, true)' 'if (isolated && approved.length)' 'single-task wave: no worktree, no merge step'; do
     run rg_or_grep -F -- "$p" "$WF"
     [ "$status" -eq 0 ]
@@ -1129,10 +1064,10 @@ mm_git_fixture() {
   [ "$status" -ne 0 ]
 }
 
-@test "spec-driven-delivery reference documents single-task waves, not always-isolated" {
-  run rg_or_grep -F 'single-task wave' "$REFS/spec-driven-delivery.md"
+@test "implement reference documents single-task waves, not always-isolated" {
+  run rg_or_grep -F 'single-task wave' "$BT_WF/implement.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'even for single-task waves' "$REFS/spec-driven-delivery.md"
+  run rg_or_grep -F 'even for single-task waves' "$BT_WF/implement.md"
   [ "$status" -ne 0 ]
 }
 
@@ -1140,12 +1075,12 @@ mm_git_fixture() {
 # Documentation sync for the Ship merge-state remediation.
 # ─────────────────────────────────────────────────────────────────────────────
 
-@test "reference doc records mergeState in the ship contract and the auto-remediation roles" {
-  run rg_or_grep -F 'mergeState?' "$REFS/spec-driven-delivery.md"
+@test "ship reference records mergeState in the ship contract and the auto-remediation roles" {
+  run rg_or_grep -F 'mergeState?' "$BT_WF/ship.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ship-ensure-mergeable' "$REFS/spec-driven-delivery.md"
+  run rg_or_grep -F 'ship-ensure-mergeable' "$BT_WF/ship.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'never merges the PR/MR itself' "$REFS/spec-driven-delivery.md"
+  run rg_or_grep -iF 'never merges the PR/MR itself' "$BT_WF/ship.md"
   [ "$status" -eq 0 ]
 }
 
@@ -1188,8 +1123,8 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
 }
 
-@test "design-only roles live as build-task role files without frontmatter; old agent and workflow files are gone" {
-  for r in designer design-reviewer; do
+@test "the eight roles live as build-task role files without frontmatter; old agent and workflow files are gone" {
+  for r in designer design-reviewer planner worktree-merger pr-author shipper ci-monitor ci-fixer; do
     [ -s "$BT_ROLES/$r.md" ]
     [ ! -e "$AGENTS_DIR/$r.md" ]
     run head -n 1 "$BT_ROLES/$r.md"
@@ -1200,6 +1135,8 @@ mm_git_fixture() {
     [ "$status" -ne 0 ]
     run rg_or_grep -F 'design-to-spec' "$BT_ROLES/$r.md"
     [ "$status" -ne 0 ]
+    run rg_or_grep -F 'spec-driven-delivery' "$BT_ROLES/$r.md"
+    [ "$status" -ne 0 ]
   done
   run rg_or_grep -F 'You are read-only: never use Write, Edit, NotebookEdit, or a Bash command that changes files or git state.' "$BT_ROLES/design-reviewer.md"
   [ "$status" -eq 0 ]
@@ -1208,29 +1145,27 @@ mm_git_fixture() {
 
 # --- ponytail report-only lean review (delivery pipeline) ---
 
-@test "spec-driven-delivery defines the lean-review schema, sonnet model, and returns ponytailReview" {
-  run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+@test "review script defines the lean-review schema, sonnet model, and returns ponytailReview" {
+  run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/spec-driven-delivery.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ponytail: {' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'ponytailReview' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "the lean-review step is scoped to over-engineering only and stays report-only" {
-  run rg_or_grep -F 'over-engineering ONLY' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'over-engineering ONLY' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
   # report-only: the ponytail review is never routed to the fix applier
-  run bash -c "grep -n 'ponytail' '$WORKFLOWS/spec-driven-delivery.workflow.js' | grep -i 'applier' || true"
+  run bash -c "grep -n 'ponytail' '$BT_WF/review.workflow.js' | grep -i 'applier' || true"
   [ "$output" = "" ]
 }
 
 @test "lean-review findings are independently verified and deduped against the combined review" {
-  run rg_or_grep -F 'verifyGroups(ponytailCandidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'verifyGroups(ponytailCandidates)' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'combinedLocs' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'combinedLocs' "$BT_WF/review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -1250,20 +1185,20 @@ mm_git_fixture() {
 }
 
 @test "pr-author documents the Lean review heading fed from the ponytail pass" {
-  run rg_or_grep -iF 'Lean review' "$AGENTS_DIR/pr-author.md"
+  run rg_or_grep -iF 'Lean review' "$BT_ROLES/pr-author.md"
   [ "$status" -eq 0 ]
 }
 
-@test "reference doc records the report-only lean (ponytail) review contract" {
-  run rg_or_grep -F 'ponytailReview' "$REFS/spec-driven-delivery.md"
+@test "review reference records the report-only lean (ponytail) review contract" {
+  run rg_or_grep -F 'ponytailReview' "$BT_WF/review.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'over-engineering' "$REFS/spec-driven-delivery.md"
+  run rg_or_grep -iF 'over-engineering' "$BT_WF/review.md"
   [ "$status" -eq 0 ]
 }
 
-@test "spec-driven-delivery threads graphmind into the planner" {
+@test "plan script threads graphmind into the planner" {
   for p in 'GRAPHMIND_AVAILABLE' 'mcp__graphmind__gm_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
-    run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
+    run rg_or_grep -F "$p" "$BT_WF/plan.workflow.js"
     [ "$status" -eq 0 ]
   done
 }
@@ -1275,8 +1210,8 @@ mm_git_fixture() {
   done
 }
 
-@test "reference docs document GRAPHMIND_AVAILABLE and REPO_PATH for the explore script and the delivery workflow" {
-  for f in workflows/explore.md references/spec-driven-delivery.md; do
+@test "reference docs document GRAPHMIND_AVAILABLE and REPO_PATH for the explore script and the plan script" {
+  for f in workflows/explore.md workflows/plan.md; do
     run rg_or_grep -F '`GRAPHMIND_AVAILABLE`' "$SKILL/$f"
     [ "$status" -eq 0 ]
     run rg_or_grep -F '`REPO_PATH`' "$SKILL/$f"
@@ -1462,5 +1397,54 @@ mm_git_fixture() {
   run rg_or_grep -F 'Review error that carries' "$F"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'CLAUDE_PLUGIN_ROOT}/workflows' "$F"
+  [ "$status" -ne 0 ]
+}
+
+@test "build-task ships eight role files and seven usage references; the plugin keeps one workflow" {
+  run bash -c "ls '$BT_ROLES' | wc -l | tr -d '[:space:]'"
+  [ "$output" = "8" ]
+  run bash -c "ls '$BT_WF'/*.md | wc -l | tr -d '[:space:]'"
+  [ "$output" = "7" ]
+  run bash -c "ls '$WORKFLOWS'/*.workflow.js | wc -l | tr -d '[:space:]'"
+  [ "$output" = "1" ]
+}
+
+@test "moved role files: ci-monitor is Bash-only by instruction, pr-author names the result files, planner stays English" {
+  run sed -n '3p' "$BT_ROLES/ci-monitor.md"
+  [ "$output" = "Use only the Bash tool; never Write, Edit or NotebookEdit, and never a Bash command that changes files or git state." ]
+  run rg_or_grep -F 'the orchestrating workflow re-dispatches you' "$BT_ROLES/ci-monitor.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'names the pipeline result files (implement result, review result) plus the spec and plan paths' "$BT_ROLES/pr-author.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'structured pipeline' "$BT_ROLES/pr-author.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'Write the ENTIRE plan in English' "$BT_ROLES/planner.md"
+  [ "$status" -eq 0 ]
+  for r in planner worktree-merger pr-author shipper ci-monitor ci-fixer; do
+    run rg_or_grep -F 'agent definition' "$BT_ROLES/$r.md"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "the three review agents name build-task's review script as their first entry point" {
+  for a in review-finder review-verifier fix-applier; do
+    run rg_or_grep -F "build-task's review script" "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'skills/build-task/workflows/review.workflow.js' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'spec-driven-delivery' "$AGENTS_DIR/$a.md"
+    [ "$status" -ne 0 ]
+  done
+  run rg_or_grep -F 'review.workflow.js`, its Apply phase)' "$AGENTS_DIR/fix-applier.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "changes-review comments point at the build-task review script, not the removed workflow" {
+  F="$WORKFLOWS/changes-review.workflow.js"
+  run bash -c "grep -c 'skills/build-task/workflows/review.workflow.js' '$F'"
+  [ "$output" = "3" ]
+  run rg_or_grep -F 'the NO_NARRATION constant of the build-task scripts' "$F"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'spec-driven-delivery' "$F"
   [ "$status" -ne 0 ]
 }

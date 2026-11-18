@@ -1,7 +1,8 @@
 ---
 name: review-finder
 description: >
-  INTERNAL. Invoked by taskflow's spec-driven-delivery workflow and the
+  INTERNAL. Invoked by build-task's review script
+  (`skills/build-task/workflows/review.workflow.js`) and the
   changes-review workflow. Do not delegate to this agent directly; if the user
   asks for a code review, run /taskflow:build-task or /taskflow:changes-audit
   instead.

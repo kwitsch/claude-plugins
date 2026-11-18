@@ -1,8 +1,9 @@
 ---
 name: fix-applier
 description: >
-  INTERNAL. Invoked by taskflow's spec-driven-delivery workflow (its Apply
-  phase) and the changes-audit skill. Do not delegate to this agent directly;
+  INTERNAL. Invoked by build-task's review script
+  (`skills/build-task/workflows/review.workflow.js`, its Apply phase) and the
+  changes-audit skill. Do not delegate to this agent directly;
   if the user asks for applying review fixes, run /taskflow:build-task or
   /taskflow:changes-audit instead.
 model: sonnet

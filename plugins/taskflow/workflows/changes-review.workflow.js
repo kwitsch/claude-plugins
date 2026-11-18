@@ -2,7 +2,7 @@
 // changes-review.workflow.js
 //
 // Standalone combined review over a branch diff. A leaner, self-contained copy
-// of spec-driven-delivery.workflow.js's Review phase: correctness angles +
+// of skills/build-task/workflows/review.workflow.js's Review phase: correctness angles +
 // cleanup lenses over the diff, each finding independently verified, plus a
 // report-only lean (ponytail) pass. No plan, no spec, no apply, no ship.
 //
@@ -101,12 +101,12 @@ const AGENTS = {
 
 // Prepended to every inline prompt below that has no `agentType` (so no plugin
 // agents/*.md system prompt already carries this rule) — identical wording to
-// every agents/*.md file and to spec-driven-delivery.workflow.js: these agents
+// the agents/*.md files and to the NO_NARRATION constant of the build-task scripts: these agents
 // run headless inside a Workflow, so any prose between tool calls is wasted
 // tokens no one reads.
 const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
 
-// ── Schemas (duplicated verbatim from spec-driven-delivery.workflow.js) ───────
+// ── Schemas (duplicated verbatim from skills/build-task/workflows/review.workflow.js) ──
 const SCOPE_SCHEMA = {
   type: "object",
   required: ["files", "summary"],
@@ -274,7 +274,7 @@ const SCOPE_BLOCK = "## Review scope\n"
 //    pipeline below. Its raw claims are independently checked through the same
 //    group-verifier step as every other candidate, and deduped against the
 //    combined review's surviving findings, before being awaited/used below.
-//    Unlike spec-driven-delivery this prompt has no USER-APPROVED-spec
+//    Unlike skills/build-task/workflows/review.workflow.js this prompt has no USER-APPROVED-spec
 //    paragraph — a bare audit has no spec. ──
 const ponytailReviewPrompt = NO_NARRATION
   + "\n\n## Lean review — over-engineering only\n\n"
