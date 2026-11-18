@@ -1,0 +1,114 @@
+{
+  "refsDir": "plugins/cc-knowledge/skills/cc-reference/references",
+  "targets": {
+    "skills": ["claude-code-skills-reference.md"],
+    "agents": ["claude-code-agents-reference.md"],
+    "hooks": ["claude-code-hooks-reference.md", "hook-handler-selection.md", "claude-code-mcp-tool-hooks-reference.md"],
+    "commands": ["claude-code-commands-reference.md"],
+    "mcp": ["claude-code-mcp-reference.md", "claude-code-mcp-managed-reference.md"],
+    "plugins": ["claude-code-plugins-reference.md", "claude-code-plugins-lsp-reference.md", "claude-code-plugins-marketplace-reference.md"],
+    "memory": ["claude-code-memory-reference.md"],
+    "settings": ["claude-code-settings-reference.md"]
+  },
+  "files": {
+    "claude-code-skills-reference.md": {
+      "docs": [
+        "https://docs.claude.com/en/docs/agents-and-tools/agent-skills/best-practices",
+        "https://code.claude.com/docs/en/skills",
+        "https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview",
+        "https://code.claude.com/docs/en/agent-sdk/skills"
+      ],
+      "note": ""
+    },
+    "claude-code-agents-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/sub-agents",
+        "https://code.claude.com/docs/en/agent-sdk/subagents"
+      ],
+      "note": ""
+    },
+    "claude-code-hooks-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/hooks",
+        "https://code.claude.com/docs/en/hooks-guide"
+      ],
+      "note": ""
+    },
+    "hook-handler-selection.md": {
+      "docs": ["https://code.claude.com/docs/en/hooks"],
+      "note": "CURATED decision aid — update conservatively. This file is a hand-tuned decision table for choosing a handler `type`, not a 1:1 doc mirror. Only touch it when the docs change something it actually asserts: handler types, fail-open/closed semantics, per-call cost/latency/state characteristics, default timeouts, `mcp_tool`/command-form shape, exit-code/decision constraints. Preserve its rule ordering and quick-map structure. Never regenerate it wholesale."
+    },
+    "claude-code-mcp-tool-hooks-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/hooks",
+        "https://code.claude.com/docs/en/mcp"
+      ],
+      "note": "CURATED — update conservatively. This file mixes doc-mirrored fields (mcp_tool hook fields from the hooks doc, plus the mcp doc) with a hard-won gotcha: a plugin's own `mcp_tool` hook must reference the server as `plugin:<plugin>:<server-key>` (per `claude mcp list`), not the bare `.mcp.json` key. PRESERVE that namespacing rule and the output-contract section on any refresh; never regenerate wholesale."
+    },
+    "claude-code-commands-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/slash-commands",
+        "https://code.claude.com/docs/en/commands"
+      ],
+      "note": ""
+    },
+    "claude-code-mcp-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/mcp",
+        "https://code.claude.com/docs/en/mcp-quickstart"
+      ],
+      "note": ""
+    },
+    "claude-code-mcp-managed-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/managed-mcp",
+        "https://code.claude.com/docs/en/mcp",
+        "https://code.claude.com/docs/en/mcp-quickstart"
+      ],
+      "note": "Split from claude-code-mcp-reference.md — keep both in sync when mcp is the target. Covers managed/enterprise MCP (`managed-mcp.json`, allowlists/denylists); the mcp and mcp-quickstart docs are included so cross-file drift with the sibling file is visible."
+    },
+    "claude-code-plugins-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/plugins",
+        "https://code.claude.com/docs/en/plugins-reference",
+        "https://code.claude.com/docs/en/plugin-marketplaces",
+        "https://code.claude.com/docs/en/plugin-dependencies",
+        "https://code.claude.com/docs/en/plugin-hints"
+      ],
+      "note": ""
+    },
+    "claude-code-plugins-lsp-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/plugins",
+        "https://code.claude.com/docs/en/plugins-reference"
+      ],
+      "note": "Split from claude-code-plugins-reference.md — keep in sync when plugins is the target. LSP servers section only, sourced from the plugins/plugins-reference docs. Linked from the plugins file's own \"## LSP servers\" pointer section. Preserve the curated `## Scopes` directive that a project-root `.lsp.json` is not loaded (a maintainer fact; the official docs document only plugin-scoped `.lsp.json`) — never re-add a project-root scope row."
+    },
+    "claude-code-plugins-marketplace-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/plugin-marketplaces",
+        "https://code.claude.com/docs/en/plugin-dependencies",
+        "https://code.claude.com/docs/en/plugin-hints"
+      ],
+      "note": "Split from claude-code-plugins-reference.md — keep in sync when plugins is the target. marketplace.json schema, plugin dependencies, and plugin hints only, sourced from the marketplaces/dependencies/hints docs. Linked from the plugins file's own \"## Marketplace\" pointer section."
+    },
+    "claude-code-memory-reference.md": {
+      "docs": ["https://code.claude.com/docs/en/memory"],
+      "note": ""
+    },
+    "claude-code-settings-reference.md": {
+      "docs": [
+        "https://code.claude.com/docs/en/settings",
+        "https://code.claude.com/docs/en/env-vars",
+        "https://code.claude.com/docs/en/permissions",
+        "https://code.claude.com/docs/en/permission-modes",
+        "https://code.claude.com/docs/en/model-config",
+        "https://code.claude.com/docs/en/output-styles",
+        "https://code.claude.com/docs/en/statusline",
+        "https://code.claude.com/docs/en/sandboxing"
+      ],
+      "note": ""
+    }
+  },
+  "altUrls": {}
+}

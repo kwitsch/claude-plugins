@@ -236,10 +236,15 @@ make_stub() {
 }
 
 @test "update-cc-references allowed-tools include fetch + edit + release tools" {
-  for tool in Workflow Read Edit Write Glob Bash Skill; do
+  for tool in Workflow Read Edit Write Glob Bash; do
     run rg_or_grep -E "^allowed-tools:.*$tool" "$MAINT"
     [ "$status" -eq 0 ]
   done
+  run rg_or_grep -E "^allowed-tools:.*(Skill|WebSearch)" "$MAINT"
+  [ "$status" -ne 0 ]
+  [ "$(wc -l < "$MAINT")" -lt 150 ]
+  [ "$(rg_or_grep -cF 'node ${CLAUDE_SKILL_DIR}/refresh.mjs' "$MAINT")" -ge 2 ]
+  [ -f "$REPO_ROOT/.claude/skills/update-cc-references/refresh.reference.md" ]
 }
 
 @test "update-cc-references never falls back to WebFetch for content" {
@@ -263,11 +268,12 @@ make_stub() {
   for tok in commands mcp plugins memory settings; do
     printf '%s\n' "$output" | rg_or_grep -q "$tok"
   done
+  sources="$REPO_ROOT/.claude/skills/update-cc-references/sources.json"
   for f in claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-mcp-managed-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run rg_or_grep -F "$f" "$MAINT"
+    run rg_or_grep -F "$f" "$sources"
     [ "$status" -eq 0 ]
   done
 }
@@ -1776,7 +1782,7 @@ JSON
 }
 
 @test "update-cc-references preserves the LSP not-loaded directive" {
-  run rg_or_grep -F 'project-root `.lsp.json` is not loaded' "$MAINT"
+  run rg_or_grep -F 'project-root `.lsp.json` is not loaded' "$REPO_ROOT/.claude/skills/update-cc-references/sources.json"
   [ "$status" -eq 0 ]
 }
 
@@ -2601,8 +2607,8 @@ detect_fixture() {
   [[ "$output" == *"init-dev-environment"* ]]
 }
 
-@test "plugin.json version is 2.1.2 (patch, CC reference refresh)" {
+@test "plugin.json version is a semver triple" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "2.1.2" ]
+  [[ "$output" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }

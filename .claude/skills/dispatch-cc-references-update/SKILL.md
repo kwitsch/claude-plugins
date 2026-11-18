@@ -18,7 +18,7 @@ session (`claude --worktree ... --bg`) that runs unattended — a separate sessi
 in-session subagent. Model `haiku` and effort `high` are fixed in the launch command; this
 skill has no way to override either. The worktree starts on an auto-generated branch name, so
 the payload has the new session cut a named `fix/refresh-cc-references-<target>-<YYYYMMDD-HHMMSS>`
-branch first: `update-cc-references` Release step 4's inline git fallback only cuts a branch "if
+branch first: `update-cc-references` step 8 (commit, push, PR) only cuts a branch "if
 currently on the default branch". This skill's own Bash never runs `git`. It is a deliberate
 fork of taskflow's `dispatch-task`; the design rationale lives in
 [dispatch-task/CLAUDE.md](../../../plugins/taskflow/skills/dispatch-task/CLAUDE.md).
@@ -43,7 +43,7 @@ name="cc-refs-update-<target>-$(date +%s)-$RANDOM"
 claude --worktree "$name" --model haiku --effort high --permission-mode auto --bg "$(
   cat << 'DISPATCH_CC_REFERENCES_PROMPT_EOF'
 /update-cc-references <target>
-Before its Release step cuts any branch, in this fresh worktree (already a clean checkout), run
+Before its commit step (step 8) cuts any branch, in this fresh worktree (already a clean checkout), run
 exactly this first:
   git checkout -b "fix/refresh-cc-references-<target>-$(date +%Y%m%d-%H%M%S)"
 DISPATCH_CC_REFERENCES_PROMPT_EOF
