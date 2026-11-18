@@ -283,8 +283,8 @@ followed_by() { # <head> <next> <file>
 
 @test "build-task scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types (review excepted), clean comments" {
   run bash -c "ls '$BT_WF'/*.workflow.js | wc -l | tr -d '[:space:]'"
-  [ "$output" = "4" ]
-  for n in explore design spec plan; do
+  [ "$output" = "5" ]
+  for n in explore design spec plan implement; do
     f="$BT_WF/$n.workflow.js"
     [ -s "$f" ]
     run rg_or_grep -F 'export const meta = {' "$f"
@@ -1325,6 +1325,40 @@ mm_git_fixture() {
     [ "$status" -eq 0 ]
   done
   for absent in 'claude-opus-4-8' 'spec-driven-delivery' 'design-to-spec'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "implement.workflow.js: plan loader with validation, wave rules, merger role file, heredoc scribe, uniform returns" {
+  F="$BT_WF/implement.workflow.js"
+  [ -s "$F" ]
+  for p in 'name: "build-task-implement"' 'decodeArgs(["PLAN_PATH", "IMPLEMENT_PATH", "BRANCH_NAME", "SCRATCH_DIR", "SKILL_DIR"]' 'must be an absolute path' 'loader: "haiku"' 'merger: "haiku"' 'scribe: "haiku"' 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' 'complex: "sonnet"' 'label: "load-plan"' 'label: "load-plan:retry"' 'required: ["constraints", "tasks", "taskHeadings"]' 'p.tasks.length === p.taskHeadings' 'could not load the plan tasks from PLAN_PATH' '+ "/roles/worktree-merger.md"' 'Read your role definition at ${ROLE.merger} first and follow it exactly.' 'protocol, and toplevel self-report per your role definition.' 'testEvidencePath: { type: "string" }' '"testEvidencePath", "deviations"' 'tevPathFor' 'test-evidence-task-' 'named by testEvidencePath' 'isolated ? { isolation: "worktree" } : {}' 'runTask(waveTasks[0], false)' 'runTask(t, true)' 'if (isolated && approved.length)' 'single-task wave: no worktree, no merge step' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'expectedBytes + 1' 'label: "persist:retry"' 'NEVER the Write or Edit tool' 'could not write IMPLEMENT_PATH — all tasks are committed on ' 'return { status: "complete", implementPath: IMPLEMENT_PATH, tasks: taskList, waves, minorFindings: minorLedger };' 'tasks: [], waves: [], results: [], minorFindings: []'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  for p in 'implementerPrompt = (t, isolated) =>' 'reviewerPrompt = (t, implReport, isolated) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>' 'mergerPrompt = (approved) =>'; do
+    followed_by "$p" '`${NO_NARRATION}' "$F"
+  done
+  run rg_or_grep -iF 'Bash redirection' "$F"
+  [ "$status" -eq 0 ]
+  for absent in 'agentType' 'classify' 'PINNED_OPUS' 'difficulty' 'agent definition' 'stage: "done"' 'even for wave size 1' 'tasks.length > 4' 'SPEC_PATH' 'BASE_BRANCH' '"worktreePath", "testEvidence", "deviations"' 'testEvidence: { type: "string" }'; do
+    run rg_or_grep -F -- "$absent" "$F"
+    [ "$status" -ne 0 ]
+  done
+  # every return after the args check carries tasks, waves and minorFindings
+  run bash -c "grep -n 'stage: \"Implement\"' '$F' | grep -vc 'tasks: .*waves.*minorFindings' || true"
+  [ "$output" = "0" ]
+}
+
+@test "implement.md documents the implement script contract and the wave rules" {
+  F="$BT_WF/implement.md"
+  [ -s "$F" ]
+  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`PLAN_PATH`' '`IMPLEMENT_PATH`' '`BRANCH_NAME`' '`SCRATCH_DIR`' '`SKILL_DIR`' '`implementPath`' '`tasks`' '`waves`' '`minorFindings`' '`results`' 'single-task wave' 'roles/worktree-merger.md' 'taskResults' '## Contents' '## Preconditions'; do
+    run rg_or_grep -F -- "$p" "$F"
+    [ "$status" -eq 0 ]
+  done
+  for absent in 'claude-opus-4-8' 'spec-driven-delivery' 'even for single-task waves'; do
     run rg_or_grep -F -- "$absent" "$F"
     [ "$status" -ne 0 ]
   done
