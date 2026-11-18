@@ -68,6 +68,7 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
   [ "$output" = "$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")" ]
   [[ "$output" == *"runs the design pipeline (explore, design, spec)"* ]]
+  [[ "$output" == *"and the delivery pipeline (plan, wave-parallel implement, combined review, ship)"* ]]
 }
 
 @test "no design-to-spec mention survives in the plugin, root README, marketplace or repo memory files" {
@@ -964,7 +965,7 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'skills/changes-audit/' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '9 static role prompts' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F '3 static role prompts' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 
@@ -1091,10 +1092,10 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
 }
 
-@test "CLAUDE.md documents bin/ship-ensure-mergeable.sh alongside the 9-agent roster" {
+@test "CLAUDE.md documents bin/ship-ensure-mergeable.sh alongside the 3-agent roster" {
   run rg_or_grep -F 'ship-ensure-mergeable.sh' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '9 static role prompts' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F '3 static role prompts' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 
@@ -1447,4 +1448,32 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'spec-driven-delivery' "$F"
   [ "$status" -ne 0 ]
+}
+
+@test "no spec-driven-delivery mention survives in the plugin, root README, marketplace or repo memory files" {
+  run grep -rnF 'spec-driven-delivery' "$PLUGIN" "$REPO_ROOT/README.md" "$REPO_ROOT/.claude-plugin" "$REPO_ROOT/.claude/rules" "$REPO_ROOT/plugins/CLAUDE.md" "$REPO_ROOT/CLAUDE.md"
+  [ "$status" -eq 1 ]
+}
+
+@test "dev notes and README describe the seven build-task scripts, eight role files and the size-driven choices" {
+  for p in 'plan.workflow.js' 'implement.workflow.js' 'review.workflow.js' 'ship.workflow.js' 'implement-<slug>.json' 'review-<slug>.json' 'pr-body-<slug>.md' 'skills/build-task/roles/planner.md' 'roles/shipper.md' 'roles/worktree-merger.md' "ci-monitor's Bash-only guarantee" 'passed as `LEVEL`' '`plan.md`, `implement.md`, `review.md`, `ship.md`'; do
+    run rg_or_grep -F -- "$p" "$PLUGIN/CLAUDE.md"
+    [ "$status" -eq 0 ]
+  done
+  for p in 'plan.workflow.js' 'review.workflow.js' '`S → sonnet`, `M → opus`, `L → opus`, `XL → fable`' '`LEVEL`' 'carries `NO_NARRATION`'; do
+    run rg_or_grep -F -- "$p" "$WORKFLOWS/CLAUDE.md"
+    [ "$status" -eq 0 ]
+  done
+  for absent in 'CLASSIFY_SCHEMA' 'simple → sonnet' 'hardest' 'agents/planner.md'; do
+    run rg_or_grep -F -- "$absent" "$WORKFLOWS/CLAUDE.md"
+    [ "$status" -ne 0 ]
+  done
+  for p in 'plan.workflow.js' 'implement.workflow.js' 'review.workflow.js' 'ship.workflow.js' 'planner.md' 'ci-fixer.md' 'review-finder.md'; do
+    run rg_or_grep -F -- "$p" "$PLUGIN/README.md"
+    [ "$status" -eq 0 ]
+  done
+  run rg_or_grep -F 'references/' "$PLUGIN/README.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'input of the plan script' "$BT_WF/spec.md"
+  [ "$status" -eq 0 ]
 }

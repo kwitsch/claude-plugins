@@ -1,6 +1,6 @@
 # taskflow
 
-Spec-driven design & delivery pipeline for Claude Code, packaged as a plugin. `/taskflow:build-task` runs the design pipeline — three single-phase Workflow scripts shipped inside the skill (explore, design, spec: explore, draft, review, spec) — and the `spec-driven-delivery` workflow (plan, wave-parallel implement (isolated worktrees + per-wave merge for multi-task waves), combined review, fix application). `/taskflow:changes-audit` (`skills/changes-audit/`) runs the same combined review standalone over a branch diff — no plan/spec/ship — then optionally applies the findings (`--fix` auto-applies all, otherwise an `AskUserQuestion` multi-select applies your picks).
+Spec-driven design & delivery pipeline for Claude Code, packaged as a plugin. `/taskflow:build-task` owns the whole pipeline as seven single-phase Workflow scripts shipped inside the skill — the design pipeline (explore, design, spec) and the delivery pipeline (plan, wave-parallel implement (isolated worktrees + per-wave merge for multi-task waves), combined review with fix application, ship). `/taskflow:changes-audit` (`skills/changes-audit/`) runs the same combined review standalone over a branch diff — no plan/spec/ship — then optionally applies the findings (`--fix` auto-applies all, otherwise an `AskUserQuestion` multi-select applies your picks).
 
 ## Install
 
@@ -12,38 +12,54 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 
 ## Skills
 
-| Skill           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build-task`    | Orchestrator: creates and enters a `feature/<slug>` worktree, runs the design pipeline (explore → size → design → spec; scripts and the designer/design-reviewer role files live in `skills/build-task/workflows/` and `roles/`), `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Sizes the task with jev-api's `score` tool when available, otherwise by its own reasoning. Invokes the `spec-driven-delivery` workflow below. |
-| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                                                                                                                                                                                                     |
-| `changes-audit` | Runs the `changes-review` workflow over the current branch's committed diff, then applies findings by re-dispatching `fix-applier`: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies only your picks. Report-only lean (over-engineering) findings are never applied.                                                                                                                                                                                |
+| Skill           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-task`    | Orchestrator: creates and enters a `feature/<slug>` worktree, runs the design pipeline (explore → size → design → spec) and, after spec approval, the delivery pipeline (plan → implement → review → ship). `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Sizes the task with jev-api's `score` tool when available, otherwise by its own reasoning; the size picks the designer model, the planner model and the review level. Scripts and role files live in `skills/build-task/workflows/` and `roles/`. |
+| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                                                                                                                                                                                                                                                                                   |
+| `changes-audit` | Runs the `changes-review` workflow over the current branch's committed diff, then applies findings by re-dispatching `fix-applier`: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies only your picks. Report-only lean (over-engineering) findings are never applied.                                                                                                                                                                                                                                                              |
 
 ## Workflows
 
-The plugin-root `workflows/` directory holds the two workflows below. They are auto-discovered — no manifest field needed — so skills invoke them by name, namespaced as `/taskflow:<name>`. build-task's design pipeline is not a plugin workflow: its three scripts (`explore.workflow.js`, `design.workflow.js`, `spec.workflow.js`) live in `skills/build-task/workflows/` and run by `scriptPath`; each writes one session-temp file (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`) and returns only its path plus small status fields. Every script reads its inputs from the `args` global (structured object); a `decodeArgs` guard fails fast with `stage: 'args'` if a run is launched without input. Per-script usage references (parameters, exit contract, behavior) live in `skills/build-task/workflows/`. When the graphmind MCP server is connected and the checkout is registered (`graphmind which`), the design explorers and the planner use graphmind's code graph and project memory; otherwise they fall back to the built-in Explore agent / file search.
+build-task's pipeline is not made of plugin workflows: its seven scripts live in `skills/build-task/workflows/` and run by `scriptPath`. Each leaves one session-temp file and returns only its path plus small status fields; the skill passes those absolute paths on to the later scripts, whose agents read them. Every script reads its inputs from the `args` global (structured object); a `decodeArgs` guard fails fast with `stage: 'args'` if a run is launched without input. Per-script usage references (parameters, exit contract, behavior) live beside the scripts. When the graphmind MCP server is connected and the checkout is registered (`graphmind which`), the design explorers and the planner use graphmind's code graph and project memory; otherwise they fall back to the built-in Explore agent / file search.
 
-| Workflow               | Purpose                                                                                                                                                                                                                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spec-driven-delivery` | Plan → wave-parallel Implement (worktree + per-wave merge for multi-task waves; single-task waves commit directly) → combined Review → fix application → Ship (push, PR/MR, CI watch + bounded fix rounds).                                                                  |
-| `changes-review`       | Standalone combined Review over a branch diff — correctness angles + cleanup lenses, independently verified, plus a report-only lean pass. No plan/spec/apply/ship. Invoked by the `changes-audit` skill (not `build-task`); returns verified `findings` + `ponytailReview`. |
+| Script                  | Purpose                                                                                                                                             | Output file             |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `explore.workflow.js`   | Scout → read-only explorers → exploration reports.                                                                                                  | `explore-<slug>.md`     |
+| `design.workflow.js`    | Draft design → design review → one revision round; pauses with open user questions (resumable).                                                     | `draft-<slug>.md`       |
+| `spec.workflow.js`      | Write spec → spec review → one fix round.                                                                                                           | `spec-<slug>.md`        |
+| `plan.workflow.js`      | Approved spec → implementation plan with machine-readable tasks → plan check → one revision round.                                                  | `plan-<slug>.md`        |
+| `implement.workflow.js` | Wave-parallel implement (worktree + per-wave merge for multi-task waves; single-task waves commit directly), per-task review and fix.               | `implement-<slug>.json` |
+| `review.workflow.js`    | Combined review over the branch diff (correctness angles + cleanup lenses, independently verified, plus a report-only lean pass) → fix application. | `review-<slug>.json`    |
+| `ship.workflow.js`      | Push, PR/MR create-or-update, merge-state remediation, CI watch + bounded fix rounds. Not run when the user asked for no PR/MR.                     | `pr-body-<slug>.md`     |
+
+The plugin-root `workflows/` directory holds one auto-discovered plugin workflow, invoked by name as `/taskflow:<name>`:
+
+| Workflow         | Purpose                                                                                                                                                                                                                                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `changes-review` | Standalone combined Review over a branch diff — correctness angles + cleanup lenses, independently verified, plus a report-only lean pass. No plan/spec/apply/ship. Invoked by the `changes-audit` skill (not `build-task`); returns verified `findings` + `ponytailReview`. |
 
 ## Agents
 
-Static role prompts (rules, lens catalog, verdict ladder, git procedures), dispatched by the workflows via `agentType`; models set in frontmatter.
+Static role prompts (rules, lens catalog, verdict ladder), dispatched via `agentType` by build-task's review script and the `changes-review` workflow; models set in frontmatter.
 
-| Agent             | Model  | Role                                                                                                                                                          |
-| ----------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `planner`         | opus   | Turns an approved spec into a dense, machine-executable implementation plan. Workflow dispatch picks sonnet/opus/fable per run by difficulty — see CLAUDE.md. |
-| `review-finder`   | sonnet | Reviews one assigned lens (5 correctness angles + 5 cleanup lenses) over a diff.                                                                              |
-| `review-verifier` | sonnet | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.                                                                                   |
-| `worktree-merger` | haiku  | Merges approved task branches into the work branch in order, worktree cleanup (multi-task waves only).                                                        |
-| `fix-applier`     | sonnet | Applies pre-verified review fixes by category, with a test-run safety gate.                                                                                   |
-| `pr-author`       | haiku  | Writes the PR/MR title and body from the pipeline summary and repo template.                                                                                  |
-| `shipper`         | haiku  | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR.              |
-| `ci-monitor`      | haiku  | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                                            |
-| `ci-fixer`        | sonnet | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                                        |
+| Agent             | Model  | Role                                                                             |
+| ----------------- | ------ | -------------------------------------------------------------------------------- |
+| `review-finder`   | sonnet | Reviews one assigned lens (5 correctness angles + 5 cleanup lenses) over a diff. |
+| `review-verifier` | sonnet | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.      |
+| `fix-applier`     | sonnet | Applies pre-verified review fixes by category, with a test-run safety gate.      |
 
-The designer and the design reviewer are not plugin agents: they are role files in `skills/build-task/roles/` read by the design script's inline agents. Designer model from the task size (`S` → sonnet, `M`/`L` → opus, `XL` → fable); design reviewer on sonnet.
+Every other role is a role file in `skills/build-task/roles/`, read by the scripts' inline agents (no frontmatter; the model comes from the script):
+
+| Role file            | Model   | Role                                                                                                                                             |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `designer.md`        | by size | Writes the design draft. `S` → sonnet, `M`/`L` → opus, `XL` → fable.                                                                             |
+| `design-reviewer.md` | sonnet  | Read-only design review and open-question validation.                                                                                            |
+| `planner.md`         | by size | Turns an approved spec into a dense, machine-executable implementation plan. Same size table as the designer.                                    |
+| `worktree-merger.md` | haiku   | Merges approved task branches into the work branch in order, worktree cleanup (multi-task waves only).                                           |
+| `pr-author.md`       | haiku   | Writes the PR/MR title and body from the implement and review result files and the repo template.                                                |
+| `shipper.md`         | haiku   | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR. |
+| `ci-monitor.md`      | haiku   | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                               |
+| `ci-fixer.md`        | sonnet  | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                           |
 
 ## Layout
 
@@ -52,29 +68,27 @@ taskflow/
 ├── .claude-plugin/
 │   └── plugin.json                        # name, version, metadata
 ├── workflows/                             # auto-discovered (default location)
-│   ├── spec-driven-delivery.workflow.js
 │   └── changes-review.workflow.js
 ├── agents/                                # auto-discovered (default location)
-│   ├── planner.md          ├── review-finder.md    ├── review-verifier.md
-│   ├── worktree-merger.md  ├── fix-applier.md      ├── pr-author.md
-│   ├── shipper.md          ├── ci-monitor.md       └── ci-fixer.md
+│   ├── review-finder.md    ├── review-verifier.md  └── fix-applier.md
 ├── bin/                                   # on PATH when the plugin is enabled
 │   └── ship-ensure-mergeable.sh           # Ship-phase PR/MR merge-state remediation
 └── skills/
     ├── build-task/
     │   ├── SKILL.md                       # orchestrator
-    │   ├── workflows/
-    │   │   ├── explore.workflow.js        # design pipeline 1/3 (run by scriptPath)
+    │   ├── workflows/                     # run by scriptPath; one <name>.md usage reference per script
+    │   │   ├── explore.workflow.js        # design pipeline 1/3
     │   │   ├── design.workflow.js         # design pipeline 2/3
     │   │   ├── spec.workflow.js           # design pipeline 3/3
-    │   │   ├── explore.md                 # parameters + exit contract
-    │   │   ├── design.md                  # parameters + exit contract
-    │   │   └── spec.md                    # parameters + exit contract
-    │   ├── roles/
-    │   │   ├── designer.md                # role file (design script)
-    │   │   └── design-reviewer.md         # role file (design script)
-    │   └── references/
-    │       └── spec-driven-delivery.md    # parameters + exit contract
+    │   │   ├── plan.workflow.js           # delivery pipeline 1/4
+    │   │   ├── implement.workflow.js      # delivery pipeline 2/4
+    │   │   ├── review.workflow.js         # delivery pipeline 3/4
+    │   │   ├── ship.workflow.js           # delivery pipeline 4/4
+    │   │   └── explore.md  design.md  spec.md  plan.md  implement.md  review.md  ship.md
+    │   └── roles/                         # role files read by the scripts' inline agents
+    │       ├── designer.md         ├── design-reviewer.md  ├── planner.md
+    │       ├── worktree-merger.md  ├── pr-author.md        ├── shipper.md
+    │       └── ci-monitor.md       └── ci-fixer.md
     ├── dispatch-task/
     │   └── SKILL.md                       # background-session dispatch
     └── changes-audit/
@@ -87,4 +101,4 @@ taskflow/
 /taskflow:build-task Add IrDA transport support to the kiosk app
 ```
 
-The skill creates a `feature/<slug>` worktree and switches into it if needed (not with `--skip-branch-check`), runs the design pipeline (explore once, size the task, then design — looping through `AskUserQuestion` rounds while it exits `user_input_required` — then spec), presents the spec's key points for approval, then runs the delivery workflow and reports waves, findings, and commits. All intermediate files live in a `build-task/` subfolder of the session temp directory and are never committed.
+The skill creates a `feature/<slug>` worktree and switches into it if needed (not with `--skip-branch-check`), runs the design pipeline (explore once, size the task, then design — looping through `AskUserQuestion` rounds while it exits `user_input_required` — then spec), presents the spec's key points for approval, then runs the delivery scripts (plan, implement, review, ship) and reports waves, findings, commits and the PR/MR. All intermediate files live in a `build-task/` subfolder of the session temp directory and are never committed.

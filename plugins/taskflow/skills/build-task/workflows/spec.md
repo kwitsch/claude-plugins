@@ -2,7 +2,7 @@
 
 Design pipeline, phase 3 of 3: Write spec → Spec review → at most one fix
 round → recheck. Turns the decision-complete draft into the spec file the
-delivery workflow consumes.
+plan script consumes.
 
 ## Invocation
 
@@ -26,7 +26,7 @@ agents.
 | Key          | Type   | Required | Meaning                                                                                   |
 | :----------- | :----- | :------- | :---------------------------------------------------------------------------------------- |
 | `DRAFT_PATH` | string | yes      | Absolute path of the decision-complete draft (the design script's `complete` `draftPath`) |
-| `SPEC_PATH`  | string | yes      | Absolute target path of the spec (input contract of `/taskflow:spec-driven-delivery`)     |
+| `SPEC_PATH`  | string | yes      | Absolute target path of the spec (input of the plan script)                               |
 
 Guards: missing required keys return `status: 'error', stage: 'args'` before
 any agent is dispatched.
@@ -57,5 +57,5 @@ One structured object; `status` is the discriminator. Consume only this return.
   and adds nothing new.
 - After an intent correction, build-task re-runs the design script and then
   this script; the spec is rewritten in place at the same `SPEC_PATH`.
-- The draft is left in place — context for the delivery workflow's review.
+- The draft is left in place — context for the delivery scripts.
 - Models: spec writer and spec reviewer on the `sonnet` alias.
