@@ -6,16 +6,14 @@
     "test:bats": "BATS_LIB_PATH=\"$PWD/node_modules\" bats -r test/",
     "test:unit": "node --test \"test/**/*.test.mjs\"",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint plugins test",
+    "lint": "oxlint plugins test",
     "format": "dprint fmt"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "bats": "^1.13.0",
     "bats-assert": "^2.2.4",
     "bats-support": "^0.3.0",
-    "eslint": "^10.6.0",
-    "globals": "^17.7.0",
+    "oxlint": "^1.94.0",
     "typescript": "^7.0.2"
   },
   "packageManager": "pnpm@11.20.0"

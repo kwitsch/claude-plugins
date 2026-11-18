@@ -6,7 +6,7 @@
     "MD038": false
   },
   // Synced plugins are build output from kwitsch/claude-plugins-development; never lint them here
-  // (same list as dprint.json excludes, eslint.config.mjs ignores and tsconfig.json exclude).
+  // (same list as dprint.json excludes, .oxlintrc.json ignorePatterns and tsconfig.json exclude).
   "ignores": [
     "plugins/dprint/**",
     "plugins/inline-headroom/**",

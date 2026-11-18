@@ -1,6 +1,6 @@
 # CLAUDE.md — taskflow/workflows
 
-`*.workflow.js` files — `changes-review.workflow.js` and build-task's seven `build-task-*.workflow.js` scripts here — are excluded from the repo's `eslint.config.mjs` (root `ignores`, `**/*.workflow.js`): Workflow-tool scripts run inside an implicit async wrapper, so top-level `await`/`return` are valid there but not parseable as a standalone ES module.
+`*.workflow.js` files — `changes-review.workflow.js` and build-task's seven `build-task-*.workflow.js` scripts here — are excluded from the repo's `.oxlintrc.json` (root `ignorePatterns`, `**/*.workflow.js`): Workflow-tool scripts run inside an implicit async wrapper, so top-level `await`/`return` are valid there but not parseable as a standalone ES module.
 
 ## Model assignment
 
