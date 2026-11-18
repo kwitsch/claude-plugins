@@ -32,7 +32,7 @@
 //                    remediation and reports mergeState 'unknown'.
 //
 // Invocation contract:
-//   - PRIMARY: Workflow({ scriptPath: "<SKILL_DIR>/workflows/ship.workflow.js", args })
+//   - PRIMARY: the plugin workflow `build-task-ship` (by name, namespaced by the plugin, args)
 //     with ONE JSON object as args — the script reads it as the global `args`.
 //   - FALLBACK (decodeArgs reports "args global is undefined"): prepend
 //     EXACTLY ONE line right after the meta block: `const args = { … }`

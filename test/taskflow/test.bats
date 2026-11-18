@@ -57,10 +57,10 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 2.0.0" {
+@test "plugin.json version is 2.0.1" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "2.0.0" ]
+  [ "$output" = "2.0.1" ]
 }
 
 @test "marketplace taskflow description matches plugin.json and names the design pipeline" {
@@ -126,7 +126,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "build-task SKILL.md runs all seven scripts by scriptPath and sizes the task (jev-api or own reasoning)" {
-  for p in 'Skill dir: ${CLAUDE_SKILL_DIR}' 'SKILL_DIR' 'scriptPath' 'explore.workflow.js' 'design.workflow.js' 'spec.workflow.js' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'plan.workflow.js' 'implement.workflow.js' 'review.workflow.js' 'ship.workflow.js' 'IMPLEMENT_PATH' 'REVIEW_PATH' 'PR_BODY_PATH' 'implement-<slug>.json' 'review-<slug>.json' 'pr-body-<slug>.md' 'Review level: <level> (size <X>)'; do
+  for p in 'Skill dir: ${CLAUDE_SKILL_DIR}' 'SKILL_DIR' 'Never use `scriptPath`' 'taskflow:build-task-<name>' 'build-task-explore' 'build-task-design' 'build-task-spec' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'build-task-plan' 'build-task-implement' 'build-task-review' 'build-task-ship' 'IMPLEMENT_PATH' 'REVIEW_PATH' 'PR_BODY_PATH' 'implement-<slug>.json' 'review-<slug>.json' 'pr-body-<slug>.md' 'Review level: <level> (size <X>)'; do
     run rg_or_grep -F -- "$p" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
@@ -141,7 +141,7 @@ followed_by() { # <head> <next> <file>
 @test "build-task design-pipeline usage references exist and document their contracts" {
   for f in explore.md design.md spec.md; do
     [ -s "$BT_WF/$f" ]
-    for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'"; do
+    for p in 'taskflow:build-task-' 'args global is undefined' 'const args = { … }' "stage: 'args'"; do
       run rg_or_grep -F -- "$p" "$BT_WF/$f"
       [ "$status" -eq 0 ]
     done
@@ -201,7 +201,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "every agentType referenced by the workflows has a matching agents/*.md file" {
-  for f in "$WORKFLOWS/changes-review.workflow.js" "$BT_WF/review.workflow.js"; do
+  for f in "$WORKFLOWS/changes-review.workflow.js" "$WORKFLOWS/build-task-review.workflow.js"; do
     for name in $(rg_or_grep -oE "taskflow:[a-z-]+" "$f" | sed 's/taskflow://' | sort -u); do
       [ -f "$AGENTS_DIR/$name.md" ]
     done
@@ -221,7 +221,7 @@ followed_by() { # <head> <next> <file>
 # --- build-task design-pipeline scripts (skills/build-task/workflows/*.workflow.js) ---
 
 @test "explore.workflow.js: meta, args guard, NO_NARRATION on every prompt, graphmind path, scribe" {
-  F="$BT_WF/explore.workflow.js"
+  F="$WORKFLOWS/build-task-explore.workflow.js"
   [ -s "$F" ]
   for p in 'export const meta = {' 'name: "build-task-explore"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH"], { GRAPHMIND_AVAILABLE: false, REPO_PATH: "" })' 'const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";' 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'seenProposedNames' 'explorer: "haiku"' 'scribe: "haiku"' 'required: ["subsystems"]' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' '## Recorded project knowledge (graphmind memory)' 'scribePrompt = `${NO_NARRATION}' '<<<BEGIN>>>' 'label: "scribe:retry"' 'scribe could not write EXPLORE_PATH' 'explorePath: EXPLORE_PATH'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -240,12 +240,12 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "build-task design-pipeline scripts parse as async function bodies" {
-  run node -e 'const fs=require("fs");for(const f of process.argv.slice(1)){new (Object.getPrototypeOf(async function(){}).constructor)(fs.readFileSync(f,"utf8").replace(/^export /m,""))}' "$BT_WF"/*.workflow.js
+  run node -e 'const fs=require("fs");for(const f of process.argv.slice(1)){new (Object.getPrototypeOf(async function(){}).constructor)(fs.readFileSync(f,"utf8").replace(/^export /m,""))}' "$WORKFLOWS"/build-task-*.workflow.js
   [ "$status" -eq 0 ]
 }
 
 @test "design.workflow.js: args guards, SIZE-keyed designer model, role files by absolute path, inline prompts" {
-  F="$BT_WF/design.workflow.js"
+  F="$WORKFLOWS/build-task-design.workflow.js"
   [ -s "$F" ]
   for p in 'export const meta = {' 'name: "build-task-design"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH", "DRAFT_PATH", "SKILL_DIR"], { SIZE: "", RESUME: false, USER_INPUT: "" })' 'RESUME=true requires USER_INPUT' 'SKILL_DIR must be an absolute path' 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' 'let DESIGNER_MODEL = designerModel(SIZE);' 'model: DESIGNER_MODEL' 'designReview: "sonnet"' 'if (DESIGNER_MODEL !== "fable") throw e;' 'DESIGNER_MODEL = "opus";' 'function hasContaminatedKeypoints' 'if (d === null || hasContaminatedKeypoints(d))' 'never embedded as text/tags' '+ "/roles/designer.md"' '+ "/roles/design-reviewer.md"' 'Read your role definition at ${ROLE.designer} first and follow it exactly.' 'designReviewerPrompt = `${NO_NARRATION}\n\nRead your role definition at ${ROLE.reviewer} first and follow it exactly. You are read-only.' 'Read the exploration file at ${EXPLORE_PATH} before designing' 'per your role' 'Apply your full checklist (role definition)' 'status: "user_input_required"' 'Re-run this workflow with RESUME=true, the same DRAFT_PATH and EXPLORE_PATH, and the answers as USER_INPUT (recommended: JSON [{id, answer}]).' 'minorFindings: (review.findings || []).filter((f) => f.severity === "minor")'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -259,7 +259,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "spec.workflow.js: inline spec writer/reviewer, English, lean carry-forward, specReviewed" {
-  F="$BT_WF/spec.workflow.js"
+  F="$WORKFLOWS/build-task-spec.workflow.js"
   [ -s "$F" ]
   for p in 'export const meta = {' 'name: "build-task-spec"' 'function decodeArgs' 'decodeArgs(["DRAFT_PATH", "SPEC_PATH"], {})' 'specWriter: "sonnet"' 'specReview: "sonnet"' 'specReviewerPrompt = `${NO_NARRATION}' 'function reviewSpec' 'function writeSpec' 'specReviewed: specCheck != null' 'lean/YAGNI decisions forward' 'English' 'specPath: SPEC_PATH'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -273,10 +273,10 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "build-task scripts: meta, decodeArgs fail-fast, NO_NARRATION, no plugin agent types (review excepted), clean comments" {
-  run bash -c "ls '$BT_WF'/*.workflow.js | wc -l | tr -d '[:space:]'"
+  run bash -c "ls '$WORKFLOWS'/build-task-*.workflow.js | wc -l | tr -d '[:space:]'"
   [ "$output" = "7" ]
   for n in explore design spec plan implement review ship; do
-    f="$BT_WF/$n.workflow.js"
+    f="$WORKFLOWS/build-task-$n.workflow.js"
     [ -s "$f" ]
     run rg_or_grep -F 'export const meta = {' "$f"
     [ "$status" -eq 0 ]
@@ -431,23 +431,23 @@ AGENT_NAMES="review-finder review-verifier fix-applier"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'rerunId' "$BT_ROLES/ci-fixer.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'rerunId' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'rerunId' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "the designer prompt and role file both disambiguate openQuestions as its own structured-output field" {
-  run rg_or_grep -F 'never embedded as text/tags' "$BT_WF/design.workflow.js"
+  run rg_or_grep -F 'never embedded as text/tags' "$WORKFLOWS/build-task-design.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'never write `openQuestions` as text or tags' "$BT_ROLES/designer.md"
   [ "$status" -eq 0 ]
 }
 
 @test "review script guards agent array fields before iterating" {
-  run rg_or_grep -F 'r.verdicts || []' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'r.verdicts || []' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'Array.isArray(r.candidates)' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'Array.isArray(r.candidates)' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'Array.isArray(sweep.candidates)' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'Array.isArray(sweep.candidates)' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -455,49 +455,49 @@ AGENT_NAMES="review-finder review-verifier fix-applier"
 
 @test "workflow model tiers are unpinned to bare aliases with the size-keyed model maps present" {
   for p in 'const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";' 'model: DESIGNER_MODEL'; do
-    run rg_or_grep -F -- "$p" "$BT_WF/design.workflow.js"
+    run rg_or_grep -F -- "$p" "$WORKFLOWS/build-task-design.workflow.js"
     [ "$status" -eq 0 ]
   done
   for p in 'const PLAN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const plannerModel = (s) => PLAN_MODEL[String(s).toUpperCase()] || "opus";' 'model: PLANNER_MODEL'; do
-    run rg_or_grep -F -- "$p" "$BT_WF/plan.workflow.js"
+    run rg_or_grep -F -- "$p" "$WORKFLOWS/build-task-plan.workflow.js"
     [ "$status" -eq 0 ]
   done
-  run bash -c "grep -l 'PINNED_OPUS' '$BT_WF'/*.workflow.js '$WORKFLOWS'/*.workflow.js || true"
+  run bash -c "grep -l 'PINNED_OPUS' '$WORKFLOWS'/build-task-*.workflow.js '$WORKFLOWS'/*.workflow.js || true"
   [ "$output" = "" ]
-  run rg_or_grep -F 'synthesizer: "opus"' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'synthesizer: "opus"' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'synthesizer: "opus"' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "explore scout schema carries no difficulty; the designer model comes from build-task's SIZE" {
-  run rg_or_grep -F 'required: ["subsystems"]' "$BT_WF/explore.workflow.js"
+  run rg_or_grep -F 'required: ["subsystems"]' "$WORKFLOWS/build-task-explore.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'difficulty' "$BT_WF/explore.workflow.js"
+  run rg_or_grep -F 'difficulty' "$WORKFLOWS/build-task-explore.workflow.js"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F 'let DESIGNER_MODEL = designerModel(SIZE)' "$BT_WF/design.workflow.js"
+  run rg_or_grep -F 'let DESIGNER_MODEL = designerModel(SIZE)' "$WORKFLOWS/build-task-design.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "design.workflow.js designer dispatch falls back from fable to opus on a throw" {
-  run rg_or_grep -F 'if (DESIGNER_MODEL !== "fable") throw e;' "$BT_WF/design.workflow.js"
+  run rg_or_grep -F 'if (DESIGNER_MODEL !== "fable") throw e;' "$WORKFLOWS/build-task-design.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'DESIGNER_MODEL = "opus";' "$BT_WF/design.workflow.js"
+  run rg_or_grep -F 'DESIGNER_MODEL = "opus";' "$WORKFLOWS/build-task-design.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "sonnet and haiku workflow assignments stay bare aliases" {
-  run rg_or_grep -F 'explorer: "haiku"' "$BT_WF/explore.workflow.js"
+  run rg_or_grep -F 'explorer: "haiku"' "$WORKFLOWS/build-task-explore.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'merger: "haiku"' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'planChecker: "sonnet"' "$BT_WF/plan.workflow.js"
+  run rg_or_grep -F 'planChecker: "sonnet"' "$WORKFLOWS/build-task-plan.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'finder: "sonnet"' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'applier: "sonnet"' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'applier: "sonnet"' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -873,24 +873,24 @@ mm_git_fixture() {
 # ─────────────────────────────────────────────────────────────────────────────
 
 @test "SHIP_RESULT declares optional mergeState enum; status enum unchanged" {
-  run rg_or_grep -F 'mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] }' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] }' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
   # mergeState is NOT required
-  run rg_or_grep -F 'required: ["status"]' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'required: ["status"]' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "ship script decodes PLUGIN_ROOT and threads the script path into the shipper prompt" {
-  run rg_or_grep -F 'PLUGIN_ROOT' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'PLUGIN_ROOT' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'created.mergeState' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'created.mergeState' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "ship script's final ship comment documents the optional mergeState field" {
-  run rg_or_grep -F 'mergeState?' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'mergeState?' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -977,15 +977,15 @@ mm_git_fixture() {
 }
 
 @test "PR_TEXT schema hands off bodyPath, not an inline body" {
-  run rg_or_grep -F 'bodyPath: { type: "string" }' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'bodyPath: { type: "string" }' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'required: ["title", "bodyPath"]' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'required: ["title", "bodyPath"]' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
   # word-boundary form: a plain -F "prText.body" would substring-match the
   # surviving prText.bodyPath and never pass post-conversion.
-  run rg_or_grep -e 'prText\.body\b' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -e 'prText\.body\b' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F '<<<BODY' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F '<<<BODY' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -ne 0 ]
 }
 
@@ -1016,38 +1016,38 @@ mm_git_fixture() {
 # ─────────────────────────────────────────────────────────────────────────────
 
 @test "IMPL_RESULT hands off testEvidencePath, not an inline testEvidence transcript" {
-  run rg_or_grep -F 'testEvidencePath: { type: "string" }' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F 'testEvidencePath: { type: "string" }' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '"testEvidencePath", "deviations"' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F '"testEvidencePath", "deviations"' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
   # bare `testEvidence` is a substring of the new field — absence-check the exact
   # OLD required-array + property strings instead of the bare token.
-  run rg_or_grep -F '"worktreePath", "testEvidence", "deviations"' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F '"worktreePath", "testEvidence", "deviations"' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -ne 0 ]
-  run rg_or_grep -F 'testEvidence: { type: "string" }' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F 'testEvidence: { type: "string" }' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -ne 0 ]
 }
 
 @test "implementer keeps its pinned prompt head and redirects test evidence to the derived path" {
-  run followed_by 'implementerPrompt = (t, isolated) =>' '`${NO_NARRATION}' "$BT_WF/implement.workflow.js"
+  run followed_by 'implementerPrompt = (t, isolated) =>' '`${NO_NARRATION}' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'tevPathFor' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F 'tevPathFor' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'test-evidence-task-' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F 'test-evidence-task-' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'Bash redirection' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -iF 'Bash redirection' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "reviewer reads test evidence from the file named by testEvidencePath" {
-  run followed_by 'reviewerPrompt = (t, implReport, isolated) =>' '`${NO_NARRATION}' "$BT_WF/implement.workflow.js"
+  run followed_by 'reviewerPrompt = (t, implReport, isolated) =>' '`${NO_NARRATION}' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'named by testEvidencePath' "$BT_WF/implement.workflow.js"
+  run rg_or_grep -F 'named by testEvidencePath' "$WORKFLOWS/build-task-implement.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "implement script isolates and merges only multi-task waves" {
-  WF="$BT_WF/implement.workflow.js"
+  WF="$WORKFLOWS/build-task-implement.workflow.js"
   for p in 'isolated ? { isolation: "worktree" } : {}' 'runTask(waveTasks[0], false)' 'runTask(t, true)' 'if (isolated && approved.length)' 'single-task wave: no worktree, no merge step'; do
     run rg_or_grep -F -- "$p" "$WF"
     [ "$status" -eq 0 ]
@@ -1111,7 +1111,7 @@ mm_git_fixture() {
 }
 
 @test "the spec-writer prompt carries the draft's lean/YAGNI decisions forward" {
-  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$BT_WF/spec.workflow.js"
+  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$WORKFLOWS/build-task-spec.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -1138,26 +1138,26 @@ mm_git_fixture() {
 # --- ponytail report-only lean review (delivery pipeline) ---
 
 @test "review script defines the lean-review schema, sonnet model, and returns ponytailReview" {
-  run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ponytailReview' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
 @test "the lean-review step is scoped to over-engineering only and stays report-only" {
-  run rg_or_grep -F 'over-engineering ONLY' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'over-engineering ONLY' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
   # report-only: the ponytail review is never routed to the fix applier
-  run bash -c "grep -n 'ponytail' '$BT_WF/review.workflow.js' | grep -i 'applier' || true"
+  run bash -c "grep -n 'ponytail' '$WORKFLOWS/build-task-review.workflow.js' | grep -i 'applier' || true"
   [ "$output" = "" ]
 }
 
 @test "lean-review findings are independently verified and deduped against the combined review" {
-  run rg_or_grep -F 'verifyGroups(ponytailCandidates)' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'verifyGroups(ponytailCandidates)' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'combinedLocs' "$BT_WF/review.workflow.js"
+  run rg_or_grep -F 'combinedLocs' "$WORKFLOWS/build-task-review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -1190,7 +1190,7 @@ mm_git_fixture() {
 
 @test "plan script threads graphmind into the planner" {
   for p in 'GRAPHMIND_AVAILABLE' 'mcp__graphmind__gm_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
-    run rg_or_grep -F "$p" "$BT_WF/plan.workflow.js"
+    run rg_or_grep -F "$p" "$WORKFLOWS/build-task-plan.workflow.js"
     [ "$status" -eq 0 ]
   done
 }
@@ -1231,7 +1231,7 @@ mm_git_fixture() {
 # --- build-task delivery scripts (plan, implement, review, ship) ---
 
 @test "plan.workflow.js: SIZE-keyed planner model, planner role file, no classifier, status exit contract" {
-  F="$BT_WF/plan.workflow.js"
+  F="$WORKFLOWS/build-task-plan.workflow.js"
   [ -s "$F" ]
   for p in 'name: "build-task-plan"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "SKILL_DIR"]' 'const PLAN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };' 'const plannerModel = (s) => PLAN_MODEL[String(s).toUpperCase()] || "opus";' 'let PLANNER_MODEL = plannerModel(SIZE);' 'model: PLANNER_MODEL' 'planChecker: "sonnet"' 'if (PLANNER_MODEL !== "fable") throw e;' 'PLANNER_MODEL = "opus";' 'if (PLANNER_MODEL === "fable") {' 'planner on fable returned null' '+ "/roles/planner.md"' 'Read your role definition at ${ROLE.planner} first and follow it exactly.' 'role definition carries the full plan requirements' 'planCheckerPrompt = `${NO_NARRATION}' 'GRAPHMIND_AVAILABLE' 'mcp__graphmind__gm_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' 'must be an absolute path' 'return { status: "complete", planPath: PLAN_PATH, plannerModel: PLANNER_MODEL };' 'stage: "Plan", error: planned.reason, planPath: PLAN_PATH, plannerModel: PLANNER_MODEL'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -1247,7 +1247,7 @@ mm_git_fixture() {
 @test "plan.md documents the plan script contract and the size-to-model table" {
   F="$BT_WF/plan.md"
   [ -s "$F" ]
-  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`SKILL_DIR`' '`SIZE`' '`GRAPHMIND_AVAILABLE`' '`REPO_PATH`' '`planPath`' '`plannerModel`' 'fable' 'S sonnet / M opus / L opus / XL fable' 'roles/planner.md' '## Contents' '## Preconditions'; do
+  for p in 'taskflow:build-task-' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`SKILL_DIR`' '`SIZE`' '`GRAPHMIND_AVAILABLE`' '`REPO_PATH`' '`planPath`' '`plannerModel`' 'fable' 'S sonnet / M opus / L opus / XL fable' 'roles/planner.md' '## Contents' '## Preconditions'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1258,7 +1258,7 @@ mm_git_fixture() {
 }
 
 @test "implement.workflow.js: plan loader with validation, wave rules, merger role file, heredoc scribe, uniform returns" {
-  F="$BT_WF/implement.workflow.js"
+  F="$WORKFLOWS/build-task-implement.workflow.js"
   [ -s "$F" ]
   for p in 'name: "build-task-implement"' 'decodeArgs(["PLAN_PATH", "IMPLEMENT_PATH", "BRANCH_NAME", "SCRATCH_DIR", "SKILL_DIR"]' 'must be an absolute path' 'loader: "haiku"' 'merger: "haiku"' 'scribe: "haiku"' 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' 'complex: "sonnet"' 'label: "load-plan"' 'label: "load-plan:retry"' 'required: ["constraints", "tasks", "taskHeadings"]' 'p.tasks.length === p.taskHeadings' 'could not load the plan tasks from PLAN_PATH' '+ "/roles/worktree-merger.md"' 'Read your role definition at ${ROLE.merger} first and follow it exactly.' 'protocol, and toplevel self-report per your role definition.' 'testEvidencePath: { type: "string" }' '"testEvidencePath", "deviations"' 'tevPathFor' 'test-evidence-task-' 'named by testEvidencePath' 'isolated ? { isolation: "worktree" } : {}' 'runTask(waveTasks[0], false)' 'runTask(t, true)' 'if (isolated && approved.length)' 'single-task wave: no worktree, no merge step' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'expectedBytes + 1' 'label: "persist:retry"' 'NEVER the Write or Edit tool' 'could not write IMPLEMENT_PATH — all tasks are committed on ' 'return { status: "complete", implementPath: IMPLEMENT_PATH, tasks: taskList, waves, minorFindings: minorLedger };' 'tasks: [], waves: [], results: [], minorFindings: []'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -1281,7 +1281,7 @@ mm_git_fixture() {
 @test "implement.md documents the implement script contract and the wave rules" {
   F="$BT_WF/implement.md"
   [ -s "$F" ]
-  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`PLAN_PATH`' '`IMPLEMENT_PATH`' '`BRANCH_NAME`' '`SCRATCH_DIR`' '`SKILL_DIR`' '`implementPath`' '`tasks`' '`waves`' '`minorFindings`' '`results`' 'single-task wave' 'roles/worktree-merger.md' 'taskResults' '## Contents' '## Preconditions'; do
+  for p in 'taskflow:build-task-' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`PLAN_PATH`' '`IMPLEMENT_PATH`' '`BRANCH_NAME`' '`SCRATCH_DIR`' '`SKILL_DIR`' '`implementPath`' '`tasks`' '`waves`' '`minorFindings`' '`results`' 'single-task wave' 'roles/worktree-merger.md' 'taskResults' '## Contents' '## Preconditions'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1292,7 +1292,7 @@ mm_git_fixture() {
 }
 
 @test "review.workflow.js: LEVEL arg (never derived), three plugin agents, lean pass, apply, heredoc scribe, returns" {
-  F="$BT_WF/review.workflow.js"
+  F="$WORKFLOWS/build-task-review.workflow.js"
   [ -s "$F" ]
   for p in 'name: "build-task-review"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "REVIEW_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", LEVEL: "high" })' 'if (LEVEL !== "high" && LEVEL !== "max")' 'must be an absolute path' 'phase("Review")' 'phase("Apply")' 'const SWEEP_MAX = 8;' 'const PONYTAIL_MAX = 8;' 'synthesizer: "opus"' 'finder: "sonnet"' 'verifier: "sonnet"' 'applier: "sonnet"' 'ponytailReviewer: "sonnet"' 'scribe: "haiku"' 'r.verdicts || []' 'Array.isArray(r.candidates)' 'Array.isArray(sweep.candidates)' 'PONYTAIL_REVIEW_SCHEMA' 'over-engineering ONLY' 'USER-APPROVED' 'verifyGroups(ponytailCandidates)' 'combinedLocs' 'findings.filter((f) => !f.reversesDecision)' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'expectedBytes + 1' 'NEVER the Write or Edit tool' 'error: "could not write REVIEW_PATH", level: LEVEL, applied: applyReport, escalatedToUser: escalated, ponytailReview' 'reviewPath: REVIEW_PATH' 'findingCount: findings.length' 'escalatedToUser: escalated'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -1320,7 +1320,7 @@ mm_git_fixture() {
 @test "review.md documents the review script contract, LEVEL and the lean review" {
   F="$BT_WF/review.md"
   [ -s "$F" ]
-  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`REVIEW_PATH`' '`BRANCH_NAME`' '`BASE_BRANCH`' '`LEVEL`' '`reviewPath`' '`findingCount`' '`applied`' '`escalatedToUser`' 'ponytailReview' 'taskflow:review-finder' 'taskflow:review-verifier' 'taskflow:fix-applier' 'findings.filter((f) => !f.reversesDecision)' '`S`/`M` → `high`, `L`/`XL` → `max`' '## Contents' '## Preconditions'; do
+  for p in 'taskflow:build-task-' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`REVIEW_PATH`' '`BRANCH_NAME`' '`BASE_BRANCH`' '`LEVEL`' '`reviewPath`' '`findingCount`' '`applied`' '`escalatedToUser`' 'ponytailReview' 'taskflow:review-finder' 'taskflow:review-verifier' 'taskflow:fix-applier' 'findings.filter((f) => !f.reversesDecision)' '`S`/`M` → `high`, `L`/`XL` → `max`' '## Contents' '## Preconditions'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1333,7 +1333,7 @@ mm_git_fixture() {
 }
 
 @test "ship.workflow.js: result-file paths to pr-author, role files, CI loop bounds, reportable ship states" {
-  F="$BT_WF/ship.workflow.js"
+  F="$WORKFLOWS/build-task-ship.workflow.js"
   [ -s "$F" ]
   for p in 'name: "build-task-ship"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "IMPLEMENT_PATH", "REVIEW_PATH", "PR_BODY_PATH", "BRANCH_NAME", "SKILL_DIR"], { BASE_BRANCH: "main", PLUGIN_ROOT: "" })' 'must be an absolute path' 'A.PLUGIN_ROOT.includes("${")' 'prAuthor: "haiku"' 'shipper: "haiku"' 'ciMonitor: "haiku"' 'ciFixer: "sonnet"' '+ "/roles/pr-author.md"' '+ "/roles/shipper.md"' '+ "/roles/ci-monitor.md"' '+ "/roles/ci-fixer.md"' 'Read your role definition at ' 'rolePrefix(ROLE.prAuthor)' 'rolePrefix(ROLE.shipper)' 'rolePrefix(ROLE.ciMonitor)' 'rolePrefix(ROLE.ciFixer)' 'Pipeline result files (faithful source of truth — Read both): implement result ' '(tasks, waves, per-task minor findings), review result ' '(level, summary, applied/skipped, escalated open items, fix commits, lean-review findings)' 'PR_BODY_PATH' 'bodyPath: { type: "string" }' 'required: ["title", "bodyPath"]' 'mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] }' 'required: ["status"]' 'ship-ensure-mergeable.sh' 'created.mergeState' 'mergeState?' 'rerunId' 'rerunTried' 'const MAX_CI_MONITOR_ROUNDS = 6;' 'const MAX_CI_FIX_ROUNDS = 2;' 'NEVER the Write or Edit tool' 'return { status: "complete", ship };'; do
     run rg_or_grep -F -- "$p" "$F"
@@ -1354,7 +1354,7 @@ mm_git_fixture() {
 @test "ship.md documents the ship script contract, mergeState and the stage's hard limits" {
   F="$BT_WF/ship.md"
   [ -s "$F" ]
-  for p in 'scriptPath' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`IMPLEMENT_PATH`' '`REVIEW_PATH`' '`PR_BODY_PATH`' '`BRANCH_NAME`' '`BASE_BRANCH`' '`SKILL_DIR`' '`PLUGIN_ROOT`' '`ship`' 'mergeState?' 'ship-ensure-mergeable' 'roles/pr-author.md' 'roles/shipper.md' 'roles/ci-monitor.md' 'roles/ci-fixer.md' '## Contents' '## Preconditions'; do
+  for p in 'taskflow:build-task-' 'args global is undefined' 'const args = { … }' "stage: 'args'" '`SPEC_PATH`' '`PLAN_PATH`' '`IMPLEMENT_PATH`' '`REVIEW_PATH`' '`PR_BODY_PATH`' '`BRANCH_NAME`' '`BASE_BRANCH`' '`SKILL_DIR`' '`PLUGIN_ROOT`' '`ship`' 'mergeState?' 'ship-ensure-mergeable' 'roles/pr-author.md' 'roles/shipper.md' 'roles/ci-monitor.md' 'roles/ci-fixer.md' '## Contents' '## Preconditions'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1369,11 +1369,11 @@ mm_git_fixture() {
 @test "no delivery script keeps the classifier, the opus pin, the built-in Explore agent or the plan-derived review level" {
   for n in plan implement review ship; do
     for absent in 'classifyPrompt' 'CLASSIFY_SCHEMA' 'label: "classify"' 'agentType: "Explore"' 'difficulty' 'PINNED_OPUS' 'tasks.length > 4'; do
-      run rg_or_grep -F -- "$absent" "$BT_WF/$n.workflow.js"
+      run rg_or_grep -F -- "$absent" "$WORKFLOWS/build-task-$n.workflow.js"
       [ "$status" -ne 0 ]
     done
   done
-  run bash -c "grep -lE 'classify|PINNED_OPUS|tasks.length > 4' '$BT_WF'/*.workflow.js || true"
+  run bash -c "grep -lE 'classify|PINNED_OPUS|tasks.length > 4' '$WORKFLOWS'/build-task-*.workflow.js || true"
   [ "$output" = "" ]
 }
 
@@ -1398,7 +1398,7 @@ mm_git_fixture() {
   run bash -c "ls '$BT_WF'/*.md | wc -l | tr -d '[:space:]'"
   [ "$output" = "7" ]
   run bash -c "ls '$WORKFLOWS'/*.workflow.js | wc -l | tr -d '[:space:]'"
-  [ "$output" = "1" ]
+  [ "$output" = "8" ]
 }
 
 @test "moved role files: ci-monitor is Bash-only by instruction, pr-author names the result files, planner stays English" {
@@ -1427,7 +1427,7 @@ mm_git_fixture() {
 
 @test "changes-review comments point at the build-task review script, not the removed workflow" {
   F="$WORKFLOWS/changes-review.workflow.js"
-  run bash -c "grep -c 'skills/build-task/workflows/review.workflow.js' '$F'"
+  run bash -c "grep -c 'workflows/build-task-review.workflow.js' '$F'"
   [ "$output" = "3" ]
   run rg_or_grep -F 'the NO_NARRATION constant of the build-task scripts' "$F"
   [ "$status" -eq 0 ]
@@ -1465,18 +1465,18 @@ mm_git_fixture() {
 
 @test "tool hints: scripts append graphmind/jev-api hints only when the skill detected the tool" {
   for n in design implement review ship; do
-    run rg_or_grep -F 'const gmHint = (purpose, project) =>' "$BT_WF/$n.workflow.js"
+    run rg_or_grep -F 'const gmHint = (purpose, project) =>' "$WORKFLOWS/build-task-$n.workflow.js"
     [ "$status" -eq 0 ]
-    run rg_or_grep -F 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' "$BT_WF/$n.workflow.js"
+    run rg_or_grep -F 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' "$WORKFLOWS/build-task-$n.workflow.js"
     [ "$status" -eq 0 ]
   done
   for n in plan ship; do
-    run rg_or_grep -F 'A.JEV_AVAILABLE === true' "$BT_WF/$n.workflow.js"
+    run rg_or_grep -F 'A.JEV_AVAILABLE === true' "$WORKFLOWS/build-task-$n.workflow.js"
     [ "$status" -eq 0 ]
   done
-  run rg_or_grep -F 'mcp__jev-api__score' "$BT_WF/plan.workflow.js"
+  run rg_or_grep -F 'mcp__jev-api__score' "$WORKFLOWS/build-task-plan.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'mcp__jev-api__choice' "$BT_WF/ship.workflow.js"
+  run rg_or_grep -F 'mcp__jev-api__choice' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'JEV_AVAILABLE = true' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]

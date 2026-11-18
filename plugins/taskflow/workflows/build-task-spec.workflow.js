@@ -17,7 +17,7 @@
 //   'error'    — { status, stage: 'args' | 'Spec', error, draftPath? }
 //
 // Invocation contract:
-//   - PRIMARY: Workflow({ scriptPath: "<SKILL_DIR>/workflows/spec.workflow.js", args })
+//   - PRIMARY: the plugin workflow `build-task-spec` (by name, namespaced by the plugin, args)
 //     with ONE JSON object as args — the script reads it as the global `args`.
 //   - FALLBACK (decodeArgs reports "args global is undefined"): prepend
 //     EXACTLY ONE line right after the meta block: `const args = { … }`

@@ -20,17 +20,17 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 
 ## Workflows
 
-build-task's pipeline is not made of plugin workflows: its seven scripts live in `skills/build-task/workflows/` and run by `scriptPath`. Each leaves one session-temp file and returns only its path plus small status fields; the skill passes those absolute paths on to the later scripts, whose agents read them. Every script reads its inputs from the `args` global (structured object); a `decodeArgs` guard fails fast with `stage: 'args'` if a run is launched without input. Per-script usage references (parameters, exit contract, behavior) live beside the scripts. When the graphmind MCP server is connected and the checkout is registered (`graphmind which`), the design explorers and the planner use graphmind's code graph and project memory; otherwise they fall back to the built-in Explore agent / file search.
+build-task's seven scripts are plugin workflows in `workflows/` and run by name (`taskflow:build-task-<name>`), never by `scriptPath` (the Workflow tool rejects a `scriptPath` outside the session's readable directories, such as the plugin cache). Each leaves one session-temp file and returns only its path plus small status fields; the skill passes those absolute paths on to the later scripts, whose agents read them. Every script reads its inputs from the `args` global (structured object); a `decodeArgs` guard fails fast with `stage: 'args'` if a run is launched without input. Per-script usage references (parameters, exit contract, behavior) live beside the scripts. When the graphmind MCP server is connected and the checkout is registered (`graphmind which`), the design explorers and the planner use graphmind's code graph and project memory; otherwise they fall back to the built-in Explore agent / file search.
 
-| Script                  | Purpose                                                                                                                                             | Output file             |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `explore.workflow.js`   | Scout → read-only explorers → exploration reports.                                                                                                  | `explore-<slug>.md`     |
-| `design.workflow.js`    | Draft design → design review → one revision round; pauses with open user questions (resumable).                                                     | `draft-<slug>.md`       |
-| `spec.workflow.js`      | Write spec → spec review → one fix round.                                                                                                           | `spec-<slug>.md`        |
-| `plan.workflow.js`      | Approved spec → implementation plan with machine-readable tasks → plan check → one revision round.                                                  | `plan-<slug>.md`        |
-| `implement.workflow.js` | Wave-parallel implement (worktree + per-wave merge for multi-task waves; single-task waves commit directly), per-task review and fix.               | `implement-<slug>.json` |
-| `review.workflow.js`    | Combined review over the branch diff (correctness angles + cleanup lenses, independently verified, plus a report-only lean pass) → fix application. | `review-<slug>.json`    |
-| `ship.workflow.js`      | Push, PR/MR create-or-update, merge-state remediation, CI watch + bounded fix rounds. Not run when the user asked for no PR/MR.                     | `pr-body-<slug>.md`     |
+| Script                             | Purpose                                                                                                                                             | Output file             |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `build-task-explore.workflow.js`   | Scout → read-only explorers → exploration reports.                                                                                                  | `explore-<slug>.md`     |
+| `build-task-design.workflow.js`    | Draft design → design review → one revision round; pauses with open user questions (resumable).                                                     | `draft-<slug>.md`       |
+| `build-task-spec.workflow.js`      | Write spec → spec review → one fix round.                                                                                                           | `spec-<slug>.md`        |
+| `build-task-plan.workflow.js`      | Approved spec → implementation plan with machine-readable tasks → plan check → one revision round.                                                  | `plan-<slug>.md`        |
+| `build-task-implement.workflow.js` | Wave-parallel implement (worktree + per-wave merge for multi-task waves; single-task waves commit directly), per-task review and fix.               | `implement-<slug>.json` |
+| `build-task-review.workflow.js`    | Combined review over the branch diff (correctness angles + cleanup lenses, independently verified, plus a report-only lean pass) → fix application. | `review-<slug>.json`    |
+| `build-task-ship.workflow.js`      | Push, PR/MR create-or-update, merge-state remediation, CI watch + bounded fix rounds. Not run when the user asked for no PR/MR.                     | `pr-body-<slug>.md`     |
 
 The plugin-root `workflows/` directory holds one auto-discovered plugin workflow, invoked by name as `/taskflow:<name>`:
 
@@ -68,7 +68,14 @@ taskflow/
 ├── .claude-plugin/
 │   └── plugin.json                        # name, version, metadata
 ├── workflows/                             # auto-discovered (default location)
-│   └── changes-review.workflow.js
+│   ├── changes-review.workflow.js
+│   ├── build-task-explore.workflow.js     # design pipeline 1/3
+│   ├── build-task-design.workflow.js      # design pipeline 2/3
+│   ├── build-task-spec.workflow.js        # design pipeline 3/3
+│   ├── build-task-plan.workflow.js        # delivery pipeline 1/4
+│   ├── build-task-implement.workflow.js   # delivery pipeline 2/4
+│   ├── build-task-review.workflow.js      # delivery pipeline 3/4
+│   └── build-task-ship.workflow.js        # delivery pipeline 4/4
 ├── agents/                                # auto-discovered (default location)
 │   ├── review-finder.md    ├── review-verifier.md  └── fix-applier.md
 ├── bin/                                   # on PATH when the plugin is enabled
@@ -76,14 +83,7 @@ taskflow/
 └── skills/
     ├── build-task/
     │   ├── SKILL.md                       # orchestrator
-    │   ├── workflows/                     # run by scriptPath; one <name>.md usage reference per script
-    │   │   ├── explore.workflow.js        # design pipeline 1/3
-    │   │   ├── design.workflow.js         # design pipeline 2/3
-    │   │   ├── spec.workflow.js           # design pipeline 3/3
-    │   │   ├── plan.workflow.js           # delivery pipeline 1/4
-    │   │   ├── implement.workflow.js      # delivery pipeline 2/4
-    │   │   ├── review.workflow.js         # delivery pipeline 3/4
-    │   │   ├── ship.workflow.js           # delivery pipeline 4/4
+    │   ├── workflows/                     # one <name>.md usage reference per script
     │   │   └── explore.md  design.md  spec.md  plan.md  implement.md  review.md  ship.md
     │   └── roles/                         # role files read by the scripts' inline agents
     │       ├── designer.md         ├── design-reviewer.md  ├── planner.md

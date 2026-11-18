@@ -14,13 +14,13 @@ script when the user asked not to open a PR/MR.
 
 ## Invocation
 
-**Primary:** `Workflow({scriptPath: "<SKILL_DIR>/workflows/ship.workflow.js", args})`
+**Primary:** `Workflow({ name: "taskflow:build-task-ship", args })`
 with ONE structured `args` object — the script reads it as the global `args`.
 The runtime may deliver the object as a JSON string; `decodeArgs` parses that
 transparently.
 
 **Fallback** — only when the return is `stage: 'args'` and its `error` starts
-with `args global is undefined`: Read `<SKILL_DIR>/workflows/ship.workflow.js`, prepend
+with `args global is undefined`: Read `<PLUGIN_ROOT>/workflows/build-task-ship.workflow.js`, prepend
 exactly one line after the `meta` block — `const args = { … }` as a JSON object
 literal — and submit the whole text via the Workflow tool's `script`
 parameter, without the tool-level `args` parameter. Any other

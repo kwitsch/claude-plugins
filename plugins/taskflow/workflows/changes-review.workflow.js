@@ -2,7 +2,7 @@
 // changes-review.workflow.js
 //
 // Standalone combined review over a branch diff. A leaner, self-contained copy
-// of skills/build-task/workflows/review.workflow.js's Review phase: correctness angles +
+// of workflows/build-task-review.workflow.js's Review phase: correctness angles +
 // cleanup lenses over the diff, each finding independently verified, plus a
 // report-only lean (ponytail) pass. No plan, no spec, no apply, no ship.
 //
@@ -106,7 +106,7 @@ const AGENTS = {
 // tokens no one reads.
 const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
 
-// ── Schemas (duplicated verbatim from skills/build-task/workflows/review.workflow.js) ──
+// ── Schemas (duplicated verbatim from workflows/build-task-review.workflow.js) ──
 const SCOPE_SCHEMA = {
   type: "object",
   required: ["files", "summary"],
@@ -274,7 +274,7 @@ const SCOPE_BLOCK = "## Review scope\n"
 //    pipeline below. Its raw claims are independently checked through the same
 //    group-verifier step as every other candidate, and deduped against the
 //    combined review's surviving findings, before being awaited/used below.
-//    Unlike skills/build-task/workflows/review.workflow.js this prompt has no USER-APPROVED-spec
+//    Unlike workflows/build-task-review.workflow.js this prompt has no USER-APPROVED-spec
 //    paragraph — a bare audit has no spec. ──
 const ponytailReviewPrompt = NO_NARRATION
   + "\n\n## Lean review — over-engineering only\n\n"

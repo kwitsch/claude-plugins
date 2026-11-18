@@ -15,8 +15,8 @@ allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "As
 Runs the feature-development pipeline (Design → Intent confirmation → Plan →
 Implement → Review → Ship) for `$task_description`, with the heavy phases
 executed by Workflow scripts. All seven are single-purpose scripts shipped in
-this skill's `workflows/` directory and run by `scriptPath` (they are not
-plugin workflows): the design pipeline — explore, design, spec — and the
+the plugin's root `workflows/` directory and run by name as
+`taskflow:build-task-<name>`: the design pipeline — explore, design, spec — and the
 delivery pipeline — plan, implement, review, ship. One usage reference per
 script — parameters, exit contract, behavior — lives beside it; read the
 relevant one BEFORE each invocation:
@@ -86,11 +86,12 @@ skips remediation (the pre-fix loop still runs).
 Skill dir: ${CLAUDE_SKILL_DIR}
 
 Capture the `Skill dir:` value above too: `SKILL_DIR` = `<Skill dir>`
-(absolute). The scripts all live under `<SKILL_DIR>/workflows/`:
-`explore.workflow.js`, `design.workflow.js`, `spec.workflow.js`,
-`plan.workflow.js`, `implement.workflow.js`, `review.workflow.js` and
-`ship.workflow.js`. Same pre-injection substitution and the same rule as the
-plugin root above: no load-time shell injection, never the
+(absolute); the scripts read their role files from `<SKILL_DIR>/roles/`. The
+scripts themselves live in the plugin root `workflows/` directory as
+`build-task-explore`, `build-task-design`, `build-task-spec`,
+`build-task-plan`, `build-task-implement`, `build-task-review` and
+`build-task-ship` (`.workflow.js`). Same pre-injection substitution and the
+same rule as the plugin root above: no load-time shell injection, never the
 exclamation-backtick sequence.
 
 ## Session temp files
@@ -127,17 +128,22 @@ Every pipeline file is session-only, never a repository file:
    script is rejected with a meta/API validation error → stop and report.
    This skill deliberately has **no Agent-engine fallback** — the workflows
    are the engine.
-2. **Invoke by `scriptPath` with `args`:**
-   `Workflow({scriptPath: "<SKILL_DIR>/workflows/<name>.workflow.js", args})` with
-   `<name>` = `explore`, `design`, `spec`, `plan`, `implement`, `review` or
-   `ship`, and ONE structured `args` object — the script reads it as the
-   `args` global; keys and return contract are in the per-script reference
-   files linked above. Structured data, so task text and user answers need no
-   string escaping. The runtime may deliver the object serialized as a JSON
-   string — the scripts' `decodeArgs` parses that transparently.
+2. **Invoke by name with `args`:** the scripts are plugin workflows in the
+   plugin root `workflows/` directory, so they are auto-discovered and run
+   namespaced by the plugin name. Never use `scriptPath`: the Workflow tool
+   only loads a `scriptPath` it can itself read (working directory or an
+   added directory), and the plugin cache is neither — the call is rejected.
+   `Workflow({name: "taskflow:build-task-<name>", args})` with `<name>` =
+   `explore`, `design`, `spec`, `plan`, `implement`, `review` or `ship` (no
+   leading `/`), and ONE structured `args` object — the script reads it as
+   the `args` global; keys and return contract are in the per-script
+   reference files linked above. Structured data, so task text and user
+   answers need no string escaping. The runtime may deliver the object
+   serialized as a JSON string — the scripts' `decodeArgs` parses that
+   transparently.
 3. **Fallback — ad-hoc script with prepended args:** when a return is
    `stage: 'args'` and its `error` starts with `args global is undefined`:
-   Read the script — `<SKILL_DIR>/workflows/<name>.workflow.js` — prepend
+   Read the script — `<Plugin root>/workflows/build-task-<name>.workflow.js` — prepend
    exactly one line after the `meta` block — `const args = { … }` as a JSON
    object literal — and send the whole text via the `script` parameter. NEVER
    pass the tool-level `args` parameter on an ad-hoc `{script}` call: the
