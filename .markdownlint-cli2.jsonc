@@ -4,5 +4,17 @@
     "MD013": false,
     // code spans with deliberate leading/trailing spaces, e.g. ` --keep <ids>`
     "MD038": false
-  }
+  },
+  // Synced plugins are build output from kwitsch/claude-plugins-development; never lint them here
+  // (same list as dprint.json excludes, eslint.config.mjs ignores and tsconfig.json exclude).
+  "ignores": [
+    "plugins/dprint/**",
+    "plugins/inline-headroom/**",
+    "plugins/universal-lint/**",
+    "plugins/universal-format/**",
+    "plugins/jevfort/**",
+    "plugins/jev-api/**",
+    "plugins/graphmind-helper/**",
+    "plugins/rc-enhancement/**"
+  ]
 }
