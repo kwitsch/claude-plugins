@@ -191,7 +191,7 @@ const REPORT_SCHEMA = {
         properties: {
           index: { type: "number" },
           merge: { type: "array", items: { type: "number" } },
-          reversesDecision: { type: "boolean" },
+          reversesDecision: { type: "boolean", description: "true only when applying the fix would reverse a decision of the approved spec; such findings are never auto-applied" },
         },
       },
     },

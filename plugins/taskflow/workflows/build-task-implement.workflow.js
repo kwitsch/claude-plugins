@@ -130,7 +130,7 @@ const TASK_ITEM = {
     files: { type: "array", items: { type: "string" } },
     consumes: { type: "array", items: { type: "string" } },
     produces: { type: "array", items: { type: "string" } },
-    complexity: { enum: ["trivial", "standard", "complex"] },
+    complexity: { enum: ["trivial", "standard", "complex"], description: "copied verbatim from the plan task; selects the implementing model" },
   },
 };
 const PLAN_STATE = {

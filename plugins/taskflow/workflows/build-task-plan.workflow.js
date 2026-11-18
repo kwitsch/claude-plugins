@@ -104,7 +104,7 @@ const TASK_ITEM = {
     files: { type: "array", items: { type: "string" } },
     consumes: { type: "array", items: { type: "string" } },
     produces: { type: "array", items: { type: "string" } },
-    complexity: { enum: ["trivial", "standard", "complex"] },
+    complexity: { enum: ["trivial", "standard", "complex"], description: "trivial = single small mechanical edit; standard = default; complex = cross-cutting, tricky logic or subtle invariants. Selects the implementing model." },
   },
 };
 const PLAN_RESULT = {
