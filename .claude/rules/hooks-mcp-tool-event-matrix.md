@@ -12,7 +12,7 @@ sources: official hooks reference https://code.claude.com/docs/en/hooks · relea
 # Claude Code Hook Handler `type:"mcp_tool"` — Event Compatibility Matrix
 
 Last verified: 2026-10-03 — event set, `status`, block mechanism, `additional_context` and timeout of every row
-reconciled against cc-reference (`claude-code-hooks-reference.md`, `claude-code-mcp-tool-hooks-reference.md`,
+reconciled against cc-reference (`claude-code-hooks.reference.md`, `claude-code-mcp-tool-hooks.reference.md`,
 both verified 2026-10-02). `GLOBAL_MECHANICS.input_omitted_default` is a live observation on 2.1.226, not re-checked since.
 
 PURPOSE: Decide, per hook event, whether the `mcp_tool` handler is fully usable

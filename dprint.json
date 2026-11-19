@@ -16,6 +16,7 @@
     "**/pnpm-lock.yaml",
     ".claude/worktrees",
     "**/*.bats",
+    "plugins/cc-knowledge",
     "plugins/dprint",
     "plugins/inline-headroom",
     "plugins/universal-lint",
