@@ -112,7 +112,7 @@ const MODELS = {
 
 // Prepended to the inline (non-agent) prompts below: these agents run headless inside a
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
-const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
+const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";
 
 // Shared tail for the PR-body prompts: the universal-format hook reformats
 // anything written through Write/Edit, so content that must reach disk

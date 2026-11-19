@@ -90,7 +90,7 @@ const MODELS = { scout: "haiku", explorer: "haiku", scribe: "haiku" };
 // Prepended to every prompt below — same wording as the rule baked into every
 // plugin agents/*.md file: these agents run headless inside a Workflow, so any
 // prose between tool calls is wasted tokens no one reads.
-const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
+const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";
 
 const MAX_PARALLEL_EXPLORES = 4;
 
@@ -254,7 +254,7 @@ if (USE_GRAPHMIND) {
 
 // ── Scribe: persist the reports (the script itself has no FS access, and the
 //    skill must never hold the exploration text) ─────────────────────────────
-const scribeText = `# Exploration reports\n\nTask:\n${TASK}\n\n${explorationBlock}`;
+const scribeText = `# Exploration reports\n\n${explorationBlock}`;
 // UTF-8 byte length of the text the scribe must write; used to catch a clearly short (truncated or empty) write.
 const expectedBytes = encodeURIComponent(scribeText).replace(/%[0-9A-F]{2}/g, "x").length;
 const scribePrompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${EXPLORE_PATH} (create/overwrite) with the Write tool, byte for byte — no edits, no summary, markers excluded. Then run \`wc -c < ${EXPLORE_PATH}\` and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${scribeText}\n<<<END>>>`;

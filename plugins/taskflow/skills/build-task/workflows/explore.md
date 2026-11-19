@@ -57,7 +57,7 @@ One structured object; `status` is the discriminator. Consume only this return.
 
 - Runs once per build-task invocation; resumes and intent corrections re-run
   only the design (and spec) script, which read the same file.
-- File content: `# Exploration reports`, the task, one `## <area>` section per
+- File content: `# Exploration reports`, one `## <area>` section per
   explorer report, and — graphmind path only, when memory recall found
   anything — `## Recorded project knowledge (graphmind memory)`.
 - Models: scout, explorers, memory recall and scribe on the `haiku` alias.
