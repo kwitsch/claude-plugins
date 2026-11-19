@@ -57,10 +57,10 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 2.1.2" {
+@test "plugin.json version is 2.2.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "2.1.2" ]
+  [ "$output" = "2.2.0" ]
 }
 
 @test "marketplace taskflow description matches plugin.json and names the design pipeline" {
