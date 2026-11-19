@@ -57,10 +57,10 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 2.1.1" {
+@test "plugin.json version is 2.1.2" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "2.1.1" ]
+  [ "$output" = "2.1.2" ]
 }
 
 @test "marketplace taskflow description matches plugin.json and names the design pipeline" {
@@ -126,7 +126,7 @@ followed_by() { # <head> <next> <file>
 }
 
 @test "build-task SKILL.md runs all seven scripts by scriptPath and sizes the task (jev-api or own reasoning)" {
-  for p in 'Never use `scriptPath`' 'taskflow:build-task-<name>' 'build-task-explore' 'build-task-design' 'build-task-spec' 'args global is undefined' 'select:mcp__jev-api__score' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'build-task-plan' 'build-task-implement' 'build-task-review' 'build-task-ship' 'IMPLEMENT_PATH' 'REVIEW_PATH' 'PR_BODY_PATH' 'implement-<slug>.json' 'review-<slug>.json' 'pr-body-<slug>.md' 'Review level: <level> (size <X>)'; do
+  for p in 'Never use `scriptPath`' 'taskflow:build-task-<name>' 'build-task-explore' 'build-task-design' 'build-task-spec' 'args global is undefined' 'select:mcp__jev-api__request' 'S: a few lines in one place' 'M: one component' 'L: several functionalities, modules or subprojects' 'XL: cross-cutting or architectural' 'confidence >= 0.6' 'explore-<slug>.md' 'The skill never Reads these files' 'EXPLORE_PATH' 'SIZE' 'build-task-plan' 'build-task-implement' 'build-task-review' 'build-task-ship' 'IMPLEMENT_PATH' 'REVIEW_PATH' 'PR_BODY_PATH' 'implement-<slug>.json' 'review-<slug>.json' 'pr-body-<slug>.md' 'Review level: <level> (size <X>)'; do
     run rg_or_grep -F -- "$p" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
@@ -1405,7 +1405,7 @@ mm_git_fixture() {
 @test "moved role files: ci-monitor is Bash-only by instruction, pr-author names the result files, planner stays English" {
   run rg_or_grep -F 'never Write, Edit or NotebookEdit, and never a Bash command that changes files or git state.' "$BT_ROLES/ci-monitor.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'tools: ["Bash", "ToolSearch", "mcp__jev-api__choice"]' "$BT_ROLES/ci-monitor.md"
+  run rg_or_grep -F 'tools: ["Bash", "ToolSearch", "mcp__jev-api__request"]' "$BT_ROLES/ci-monitor.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'the orchestrating workflow re-dispatches you' "$BT_ROLES/ci-monitor.md"
   [ "$status" -eq 0 ]
@@ -1477,9 +1477,9 @@ mm_git_fixture() {
     run rg_or_grep -F 'A.JEV_AVAILABLE === true' "$WORKFLOWS/build-task-$n.workflow.js"
     [ "$status" -eq 0 ]
   done
-  run rg_or_grep -F 'mcp__jev-api__score' "$WORKFLOWS/build-task-plan.workflow.js"
+  run rg_or_grep -F 'mcp__jev-api__request' "$WORKFLOWS/build-task-plan.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'mcp__jev-api__choice' "$WORKFLOWS/build-task-ship.workflow.js"
+  run rg_or_grep -F 'mcp__jev-api__request' "$WORKFLOWS/build-task-ship.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'JEV_AVAILABLE = true' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]

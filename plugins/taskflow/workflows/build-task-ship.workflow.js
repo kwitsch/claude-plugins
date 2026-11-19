@@ -96,7 +96,7 @@ if (wantGraphmind && !USE_GRAPHMIND) {
 }
 const USE_JEV = A.JEV_AVAILABLE === true || A.JEV_AVAILABLE === "true";
 const jevHint = USE_JEV
-  ? ` Hint: jev-api is available. To sort a failing job into flaky/infra, code-caused or base-broken, load it with ToolSearch(query: "select:mcp__jev-api__choice") and call mcp__jev-api__choice with state = the failure log excerpt and criteria = {"flaky-infra": "transient or infrastructure failure, a rerun may pass", "code-caused": "the branch's change breaks it", "base-broken": "already red on the base branch"}. Use its choice only when confidence >= 0.6; otherwise decide yourself.`
+  ? ` Hint: jev-api is available. To sort a failing job into flaky/infra, code-caused or base-broken, load it with ToolSearch(query: "select:mcp__jev-api__request") and call mcp__jev-api__request with state = the failure log excerpt and questions = [{"type": "choice", "instructions": "What caused this failing job?", "criteria": {"flaky-infra": "transient or infrastructure failure, a rerun may pass", "code-caused": "the branch's change breaks it", "base-broken": "already red on the base branch"}}]. The result is an array; use the choice of its first element only when confidence >= 0.6; otherwise decide yourself.`
   : "";
 const gmHint = (purpose, project) =>
   USE_GRAPHMIND
