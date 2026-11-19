@@ -25,5 +25,5 @@ shape, a new MCP tool call or return shape, a new decision mode in `permissionDe
 ## Source of truth
 
 Interface shapes are sourced from the cc-reference hook schema
-(`claude-code-hooks-reference.md`). When Claude Code releases a new field, verify
+(`claude-code-hooks.reference.md`). When Claude Code releases a new field, verify
 against the live doc before adding it here.

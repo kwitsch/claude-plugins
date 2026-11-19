@@ -1,5 +1,5 @@
 // types/cc-types.d.ts — Claude Code hook payload types.
-// Sourced from cc-reference hooks schema (claude-code-hooks-reference.md).
+// Sourced from cc-reference hooks schema (claude-code-hooks.reference.md).
 // RULE: extend this file whenever a new Claude Code API surface (hook event field,
 // output shape, MCP tool schema) is introduced in a .mjs file.
 // See .claude/rules/cc-types.md.
