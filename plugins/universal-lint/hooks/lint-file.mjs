@@ -985,6 +985,7 @@ export function scopedTarget(cwd, file, scratchpad, roots) {
 		const fp = path.resolve(cwd, file);
 		const ext = path.extname(fp).toLowerCase();
 		if (!EXT_MAP[ext] && !TYPE_CHECK_EXTS.has(ext)) return null;
+		if (scratchpad && path.isAbsolute(scratchpad) && !outside(path.relative(path.resolve(scratchpad), fp))) return null;
 		let real;
 		if (roots?.dirs) {
 			const st = lstatSync(fp, { throwIfNoEntry: false });
