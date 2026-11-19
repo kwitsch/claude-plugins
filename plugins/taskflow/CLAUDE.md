@@ -21,7 +21,7 @@ The plugin ships these components:
 
 ## Agent files and no-narration
 
-- Every `agents/*.md` starts, right after frontmatter, with the identical verbatim "No narrative text between tool calls" paragraph. Copy it from an existing agent into any new one.
+- Every `agents/*.md` starts, right after the frontmatter and title, with the verbatim "No narrative text between tool calls" paragraph. Every agent except `pr-author.md` also carries the English final-message sentence ("Write that final message in English, ..."); `pr-author` omits it (human-facing output). Copy the paragraph from an existing agent into any new one.
 - Why: agents run headless inside a Workflow, so prose between tool calls is wasted tokens; only the final message (report or schema-forced output) is consumed.
 - Inline workflow prompts carry the same rule as a `NO_NARRATION` prefix — see `workflows/CLAUDE.md`.
 - `design-reviewer` and `ci-monitor` carry a `tools` allowlist (Read/Grep/Glob/Bash resp. Bash, plus `ToolSearch` and the graphmind resp. jev-api tools their hints use); the other agents inherit all tools. The read-only intent is still an instruction in the agent body (Bash can write).
