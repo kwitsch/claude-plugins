@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { isExcludedPath, outside, realish, walkToRoot } from "../shared/scope.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { accessSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -622,14 +623,6 @@ const MARKDOWNLINT_CONFIG_FILENAMES = [
 	".markdownlint.cjs",
 	".markdownlint.mjs"
 ];
-function walkToRoot(dir, checkDir) {
-	for (;;) {
-		if (checkDir(dir)) return true;
-		const parent = path.dirname(dir);
-		if (parent === dir) return false;
-		dir = parent;
-	}
-}
 export function hasProjectMarkdownlintConfig(fileDir) {
 	return walkToRoot(fileDir, (dir) => anyConfigExists(dir, MARKDOWNLINT_CONFIG_FILENAMES));
 }
@@ -954,31 +947,8 @@ async function runTypeCheck(resolved, cwd, coalesce = false, session = "") {
 		base: cwd
 	};
 }
-export function isExcludedPath(rel) {
-	const segments = rel.split(path.sep);
-	if (segments.some((s) => s === "node_modules" || s === "vendor" || s === ".git")) return true;
-	if (segments.some((s, i) => s === ".claude" && (segments[i + 1] === "worktrees" || segments[i + 1] === "agent-memory"))) return true;
-	return segments[segments.length - 1].includes(".local.");
-}
-function realish(p) {
-	try {
-		return realpathSync(p);
-	} catch (e) {
-		if (e.code !== "ENOENT") throw e;
-		try {
-			lstatSync(p);
-		} catch {
-			const dir = path.dirname(p);
-			return dir === p ? p : path.join(realish(dir), path.basename(p));
-		}
-		throw e;
-	}
-}
 function scratchpadOf(args) {
 	return typeof args.scratchpad_dir === "string" ? args.scratchpad_dir : undefined;
-}
-function outside(rel) {
-	return rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel);
 }
 export function scopedTarget(cwd, file, scratchpad, roots) {
 	try {
