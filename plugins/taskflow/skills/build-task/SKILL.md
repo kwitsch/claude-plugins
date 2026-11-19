@@ -108,10 +108,12 @@ Every pipeline file is session-only, never a repository file:
   (`PLAN_PATH`), `implement-<slug>.json` (`IMPLEMENT_PATH`),
   `review-<slug>.json` (`REVIEW_PATH`), `pr-body-<slug>.md` (`PR_BODY_PATH`)
   — record and hand the workflows **absolute paths**, never inlined content.
-  The Markdown pipeline files are always written in English by the explore
-  scribe and the designer/spec-writer/planner agents, regardless of
-  `$task_description`'s language — these files are read only by other agents
-  in the pipeline, never shown to the user directly. The skill never Reads these files; it
+  The pipeline files `explore-`/`draft-`/`spec-`/`plan-<slug>.md` and
+  `implement-`/`review-<slug>.json` are always English, regardless of
+  `$task_description`'s language (every agent's final-message rule plus the
+  designer/spec-writer/planner rules) — they are read only by other agents
+  in the pipeline, never shown to the user directly; `pr-body-<slug>.md`
+  follows the repo's documentation language because it is human-facing. The skill never Reads these files; it
   passes their absolute paths to the workflows and uses only the structured
   returns. `SCRATCH_DIR` is this directory itself (absolute, trailing slash
   included) — passed to the implement script only.

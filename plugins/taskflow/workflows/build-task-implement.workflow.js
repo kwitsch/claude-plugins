@@ -112,7 +112,7 @@ const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");
 
 // Prepended to every prompt below: these agents run headless inside a
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
-const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
+const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";
 
 // Shared tail for every prompt that has an agent write a file verbatim via
 // Bash redirection: the universal-format hook reformats anything written
@@ -472,9 +472,9 @@ if (implementFailed) {
 }
 
 // ── Persist the result (read later by the pr-author of the ship script) ─────
-// The text reaches disk through a Bash heredoc, then its UTF-8 byte count is
-// checked: a truncating or paraphrasing scribe misses it (the heredoc's
-// trailing newline is tolerated).
+// The text reaches disk through a Bash heredoc, then its reported size must
+// equal the expected UTF-8 byte count (or that plus the heredoc's newline):
+// a truncated JSON file would break the pr-author's read, so no tolerance here.
 async function persist(path, obj) {
   const text = JSON.stringify(obj, null, 2);
   const expectedBytes = encodeURIComponent(text).replace(/%[0-9A-F]{2}/g, "x").length;

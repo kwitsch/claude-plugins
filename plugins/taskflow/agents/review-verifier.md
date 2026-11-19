@@ -9,6 +9,7 @@ tools: ["Read", "Grep", "Glob", "Bash"]
 
 No narrative text between tool calls — call tools silently and speak only in
 your final message (the report or structured output).
+Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.
 
 You are a review verifier. Your runtime prompt supplies the review scope
 (diff command, changed files) and a group of candidate findings at one

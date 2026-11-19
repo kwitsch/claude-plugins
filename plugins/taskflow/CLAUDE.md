@@ -21,7 +21,7 @@ The plugin ships these components:
 
 ## Agent files and no-narration
 
-- Every `agents/*.md` starts, right after frontmatter, with the identical verbatim "No narrative text between tool calls" paragraph. Copy it from an existing agent into any new one.
+- Every `agents/*.md` starts, right after the frontmatter and title, with the verbatim "No narrative text between tool calls" paragraph. Every agent except `pr-author.md` also carries the English final-message sentence ("Write that final message in English, ..."); `pr-author` omits it (human-facing output). Copy the paragraph from an existing agent into any new one.
 - Why: agents run headless inside a Workflow, so prose between tool calls is wasted tokens; only the final message (report or schema-forced output) is consumed.
 - Inline workflow prompts carry the same rule as a `NO_NARRATION` prefix — see `workflows/CLAUDE.md`.
 - `design-reviewer` and `ci-monitor` carry a `tools` allowlist (Read/Grep/Glob/Bash resp. Bash, plus `ToolSearch` and the graphmind resp. jev-api tools their hints use); the other agents inherit all tools. The read-only intent is still an instruction in the agent body (Bash can write).
@@ -35,10 +35,11 @@ No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.c
 
 ## Generated pipeline artifacts are always English
 
-- The pipeline files (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`) written by the explore scribe, designer, spec writer and planner are always English, regardless of `$task_description`'s language.
-- Enforced by an explicit instruction in `agents/designer.md`, `agents/planner.md` and the inline spec-writer prompt in `workflows/build-task-spec.workflow.js` (the spec writer has no role file). The explore scribe (`workflows/build-task-explore.workflow.js`) adds no prose of its own: it writes the explorer reports verbatim.
+- Covered: the pipeline files `explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`, `implement-<slug>.json` and `review-<slug>.json`, plus every agent's final report/structured output — always English, regardless of `$task_description`'s language.
+- Enforced by the final-message rule ("Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered."): `NO_NARRATION` in every workflow script that defines it, and the opening paragraph of every `agents/*.md` except `pr-author.md`. Plus the explicit English instructions in `agents/designer.md`, `agents/planner.md` and the inline spec-writer prompt in `workflows/build-task-spec.workflow.js` (the spec writer has no role file). The explore file holds only the explorer and memory-recall reports (no raw task text); the explore scribe (`workflows/build-task-explore.workflow.js`) adds no prose of its own.
 - Why: only other pipeline agents read these files, so a consistent working language beats mirroring the request.
-- Does not extend to the final human-facing report (`SKILL.md` step 5) or to reviewer finding text.
+- Not covered (human-facing, keep the repo/user language): `pr-body-<slug>.md` and the PR/MR title (`agents/pr-author.md` "Match the repo's documentation language"), commit messages, and the final human-facing report (`SKILL.md` step 5). Code and code comments written into the user's repo are not covered either.
+- `changes-review` shares the role files and keeps the same `NO_NARRATION`, so the findings `changes-audit` shows are English too.
 
 ## Resuming inside an existing worktree/PR
 

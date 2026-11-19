@@ -92,7 +92,7 @@ let PLANNER_MODEL = plannerModel(SIZE);
 
 // Prepended to every prompt below: these agents run headless inside a
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
-const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
+const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const TASK_ITEM = {

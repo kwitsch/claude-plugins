@@ -27,6 +27,7 @@ The review depth is not a model choice but follows the same size: build-task map
 - Eleven roles are dispatched through a plugin `agentType` (`review-finder`, `review-verifier`, `fix-applier`, plus the eight build-task roles designer, design-reviewer, planner, worktree-merger, pr-author, shipper, ci-monitor, ci-fixer); their `agents/*.md` system prompt carries the rule. Every other prompt in every script is inline and prefixed with `NO_NARRATION`: the scope-gathering, synthesizer and lean-pass agents of both review scripts, and the remaining agents of the other build-task scripts — scout, explorers, memory recall, scribe, spec writer, spec reviewer, plan checker, plan loader, per-task implementer/reviewer/fixer, result-file scribe, ship's result-files check. `build-task-design.workflow.js` has no inline prompt and no `NO_NARRATION` constant.
 - Role agents are named only by `agentType` (their model comes from the script's `model` option, which overrides the agent frontmatter); no prompt of theirs points at a role file.
 - Each script defines `const NO_NARRATION = "…"` (wording identical in every script and to the rule in `agents/*.md`) near the top. Add the same prefix to any new inline (non-`agentType`) prompt in any workflow script.
+- The rule also requires the final message in English, whatever the language of the task or its inputs (commit messages excluded). `agents/pr-author.md` deliberately lacks that English sentence: its outputs (PR/MR title and body) are human-facing and follow the repo's documentation language, and its prompt in `build-task-ship.workflow.js` carries no `NO_NARRATION`.
 - The built-in `agentType: "Explore"` path (`explorerPrompt` in `build-task-explore.workflow.js`) carries the rule only in the per-call prompt text: its system prompt is foreign to this plugin.
 
 ## `build-task-design.workflow.js` designer prompt
@@ -60,12 +61,14 @@ result file (`IMPLEMENT_PATH`, `REVIEW_PATH`) through an identical `persist()`
 helper (only its `phase` label differs): a `haiku` scribe writes the text with
 a Bash heredoc (`TASKFLOW_JSON_EOF`, never the Write or Edit tool — the
 universal-format hook would reformat it), then reports `wc -c`; the script
-accepts the expected UTF-8 byte count or that count plus one (the heredoc's
-trailing newline), with one retry. A failed write is an explicit
+accepts only the expected UTF-8 byte count or that plus one (the heredoc's
+newline), with one retry — a truncated JSON file must never pass. A failed write is an explicit
 `status: "error"` whose return still carries what the skill needs (Implement:
 `tasks`/`waves`/`results`/`minorFindings`; Review: `applied`/`escalatedToUser`).
-The explore scribe is the older variant of the same check and writes with the
-Write tool.
+The explore scribe also writes with a Bash heredoc (`TASKFLOW_MD_EOF`) but keeps
+a relaxed check: any reported size of at least `MIN_WRITE_RATIO` (0.9) of the
+expected UTF-8 byte count passes (oversize included), so a complete markdown
+file is never rejected over a few bytes of drift.
 
 ## Conditional graphmind path (build-task explorers, delivery planner)
 

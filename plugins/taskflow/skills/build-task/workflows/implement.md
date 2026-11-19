@@ -102,4 +102,6 @@ result file could not be written, all tasks are committed on `BRANCH_NAME`.
   on `haiku` (`opus` for `complex` tasks); the per-task fixer reuses the
   implementer's model. Loader, merger and scribe run on `haiku`.
 - The result file is written by a `haiku` scribe through a Bash heredoc (never
-  the Write or Edit tool) and its byte count is verified (one retry).
+  the Write or Edit tool) and its reported size must equal the expected byte
+  count (or that plus the heredoc's newline; one retry) — a truncated JSON
+  file is never accepted.
