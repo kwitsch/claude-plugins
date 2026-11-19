@@ -12,6 +12,7 @@
             "timeout": 60,
             "input": {
               "cwd": "${cwd}",
+              "scratchpad_dir": "${scratchpad_dir}",
               "tool_name": "${tool_name}",
               "tool_input": {
                 "file_path": "${tool_input.file_path}",

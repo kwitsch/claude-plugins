@@ -66,7 +66,8 @@ Two consequences worth knowing:
   plugin you asked for.
 
 An unavailable formatter, any failure, an unsupported extension, a file under
-`node_modules/`/`vendor/`/`.git/`, or a path excluded by the project's own `.prettierignore` is a
+`node_modules/`/`vendor/`/`.git/` or the Claude Code session scratchpad, or a path excluded by the
+project's own `.prettierignore` is a
 **silent no-op** — the hooks never block or degrade the session. Files outside your working
 directory are no longer skipped: they are formatted against **their own** project's configuration
 (its `.prettierrc*`, `.editorconfig` and `.prettierignore`). When formatting changed the file, the
