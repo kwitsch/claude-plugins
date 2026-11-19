@@ -255,17 +255,17 @@ if (USE_GRAPHMIND) {
 // ── Scribe: persist the reports (the script itself has no FS access, and the
 //    skill must never hold the exploration text) ─────────────────────────────
 const scribeText = `# Exploration reports\n\nTask:\n${TASK}\n\n${explorationBlock}`;
-// UTF-8 byte length of the text the scribe must write; a truncating or paraphrasing scribe misses it.
+// UTF-8 byte length of the text the scribe must write; used to catch a clearly short (truncated or empty) write.
 const expectedBytes = encodeURIComponent(scribeText).replace(/%[0-9A-F]{2}/g, "x").length;
 const scribePrompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${EXPLORE_PATH} (create/overwrite) with the Write tool, byte for byte — no edits, no summary, markers excluded. Then run \`wc -c < ${EXPLORE_PATH}\` and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${scribeText}\n<<<END>>>`;
 
-// The file is intact only when its size matches (a trailing newline is tolerated).
-const isIntact = (w) => w && w.status === "written" && (w.bytes === expectedBytes || w.bytes === expectedBytes + 1);
+// Only a clearly short write fails: a format hook or trailing newline changes a complete file's size.
+const isIntact = (w) => w && w.status === "written" && w.bytes >= expectedBytes * 0.9;
 const scribeOpts = { label: "scribe", phase: "Explore", schema: WRITE_RESULT, model: MODELS.scribe };
 let written = await agent(scribePrompt, scribeOpts);
 if (!isIntact(written)) written = await agent(scribePrompt, { ...scribeOpts, label: "scribe:retry" });
 if (!isIntact(written)) {
-  return { status: "error", stage: "Explore", error: "scribe could not write EXPLORE_PATH intact (expected " + expectedBytes + " bytes, got " + (written ? written.bytes : "null") + ")" };
+  return { status: "error", stage: "Explore", error: "scribe could not write EXPLORE_PATH intact (expected at least " + Math.ceil(expectedBytes * 0.9) + " bytes, got " + (written ? written.bytes : "null") + ")" };
 }
 
 log("Exit: exploration written to " + EXPLORE_PATH);

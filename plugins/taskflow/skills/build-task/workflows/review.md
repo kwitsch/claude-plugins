@@ -107,7 +107,8 @@ One structured object; `status` is the discriminator. Consume only this return.
   never escalated, and add no `AskUserQuestion` — run `/simplify` or
   `ponytail-review` afterward to act on them.
 - The result file is written by a `haiku` scribe through a Bash heredoc (never
-  the Write or Edit tool) and its byte count is verified (one retry).
+  the Write or Edit tool) and its reported size is checked against a
+  truncation floor of 90% of the expected byte count (one retry).
 - The review engine is duplicated in the plugin's `changes-review` workflow
   (Workflow scripts cannot import each other); that copy has no spec, no apply
   phase and no result file.

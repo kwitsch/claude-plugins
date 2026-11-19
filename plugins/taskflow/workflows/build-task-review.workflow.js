@@ -618,14 +618,14 @@ if (applicable.length > 0) {
 log("Apply: " + applyReport.applied.length + " applied, " + applyReport.skipped.length + " skipped, " + escalated.length + " escalated (spec-reversing, not applied)");
 
 // ── Persist the result (read later by the pr-author of the ship script) ─────
-// The text reaches disk through a Bash heredoc, then its UTF-8 byte count is
-// checked: a truncating or paraphrasing scribe misses it (the heredoc's
-// trailing newline is tolerated).
+// The text reaches disk through a Bash heredoc, then its reported size must
+// reach 90% of the expected UTF-8 byte count: only a clearly truncated or
+// empty write fails.
 async function persist(path, obj) {
   const text = JSON.stringify(obj, null, 2);
   const expectedBytes = encodeURIComponent(text).replace(/%[0-9A-F]{2}/g, "x").length;
   const prompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${path} (create/overwrite), byte for byte — no edits, no summary, markers excluded — with a Bash heredoc: \`cat > "${path}" <<'TASKFLOW_JSON_EOF'\`, then the text, then a line holding only TASKFLOW_JSON_EOF (${WRITE_VIA_BASH_NOT_WRITE_EDIT}). Then run \`wc -c < "${path}"\` and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${text}\n<<<END>>>`;
-  const isIntact = (w) => w && w.status === "written" && (w.bytes === expectedBytes || w.bytes === expectedBytes + 1);
+  const isIntact = (w) => w && w.status === "written" && w.bytes >= expectedBytes * 0.9;
   const opts = { label: "persist", phase: "Apply", schema: WRITE_RESULT, model: MODELS.scribe };
   let written = await agent(prompt, opts);
   if (!isIntact(written)) written = await agent(prompt, { ...opts, label: "persist:retry" });
