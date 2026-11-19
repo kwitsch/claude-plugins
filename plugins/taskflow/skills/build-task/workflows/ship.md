@@ -33,19 +33,19 @@ frontmatter model.
 
 ## Parameters (`args` object)
 
-| Key                   | Type    | Required | Meaning                                                                                                                                                             |
-| :-------------------- | :------ | :------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SPEC_PATH`           | string  | yes      | Absolute path of the user-approved spec file (PR/MR context)                                                                                                        |
-| `PLAN_PATH`           | string  | yes      | Absolute path of the plan file (PR/MR context)                                                                                                                      |
-| `IMPLEMENT_PATH`      | string  | yes      | Absolute path of the implement result file (the implement script's `implementPath`) — Read by the pr-author                                                         |
-| `REVIEW_PATH`         | string  | yes      | Absolute path of the review result file (the review script's `reviewPath`) — Read by the pr-author                                                                  |
-| `PR_BODY_PATH`        | string  | yes      | Absolute temp path the pr-author writes the PR/MR body to (`pr-body-<slug>.md`); the shipper reads it back                                                          |
-| `BRANCH_NAME`         | string  | yes      | Current work branch (`git branch --show-current`)                                                                                                                   |
-| `GRAPHMIND_AVAILABLE` | boolean | no       | `false` (default). `true` ⇒ the ci-fixer get a hint to use the graphmind MCP tools (`project` as given). Requires a non-empty absolute `REPO_PATH`                  |
-| `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                         |
-| `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the ci-monitor and ci-fixer get a hint to use jev-api's `choice` tool; they accept its answer only at `confidence >= 0.6`               |
-| `BASE_BRANCH`         | string  | no       | Branch the work branch was cut from. Default `main`. PR/MR target                                                                                                   |
-| `PLUGIN_ROOT`         | string  | no       | Default `''`. Absolute plugin root; builds the `bin/ship-ensure-mergeable.sh` path handed to the shipper. Empty or an unresolved `${…}` token → remediation skipped |
+| Key                   | Type    | Required | Meaning                                                                                                                                                                      |
+| :-------------------- | :------ | :------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SPEC_PATH`           | string  | yes      | Absolute path of the user-approved spec file (PR/MR context)                                                                                                                 |
+| `PLAN_PATH`           | string  | yes      | Absolute path of the plan file (PR/MR context)                                                                                                                               |
+| `IMPLEMENT_PATH`      | string  | yes      | Absolute path of the implement result file (the implement script's `implementPath`) — Read by the pr-author                                                                  |
+| `REVIEW_PATH`         | string  | yes      | Absolute path of the review result file (the review script's `reviewPath`) — Read by the pr-author                                                                           |
+| `PR_BODY_PATH`        | string  | yes      | Absolute temp path the pr-author writes the PR/MR body to (`pr-body-<slug>.md`); the shipper reads it back                                                                   |
+| `BRANCH_NAME`         | string  | yes      | Current work branch (`git branch --show-current`)                                                                                                                            |
+| `GRAPHMIND_AVAILABLE` | boolean | no       | `false` (default). `true` ⇒ the ci-fixer get a hint to use the graphmind MCP tools (`project` as given). Requires a non-empty absolute `REPO_PATH`                           |
+| `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                                  |
+| `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the ci-monitor and ci-fixer get a hint to use jev-api's `request` tool (a `choice` question); they accept its answer only at `confidence >= 0.6` |
+| `BASE_BRANCH`         | string  | no       | Branch the work branch was cut from. Default `main`. PR/MR target                                                                                                            |
+| `PLUGIN_ROOT`         | string  | no       | Default `''`. Absolute plugin root; builds the `bin/ship-ensure-mergeable.sh` path handed to the shipper. Empty or an unresolved `${…}` token → remediation skipped          |
 
 Guards: missing required keys, or a `SPEC_PATH`, `PLAN_PATH`,
 `IMPLEMENT_PATH`, `REVIEW_PATH`, or `PR_BODY_PATH` that is not an

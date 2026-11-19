@@ -170,7 +170,7 @@ ${revision}
   }
 ${
     USE_JEV
-      ? `\nHint: jev-api is available. To rate a task's complexity (trivial / standard / complex), load it with ToolSearch(query: "select:mcp__jev-api__score") and call mcp__jev-api__score with state = the task's title, files and interfaces and criteria = ["trivial: one small mechanical edit", "standard: a self-contained change", "complex: cross-cutting or judgment-heavy"]. Take the rounded score only when confidence >= 0.6; otherwise judge it yourself.\n`
+      ? `\nHint: jev-api is available. To rate a task's complexity (trivial / standard / complex), load it with ToolSearch(query: "select:mcp__jev-api__request") and call mcp__jev-api__request with state = the task's title, files and interfaces and questions = [{"type": "score", "instructions": "How complex is the task?", "criteria": ["trivial: one small mechanical edit", "standard: a self-contained change", "complex: cross-cutting or judgment-heavy"]}]. The result is an array; take the rounded score of its first element only when confidence >= 0.6; otherwise judge it yourself.\n`
       : ""
   }Return structured output: status, the '## Global Constraints' section verbatim
 as 'constraints', and the machine-readable tasks array as 'tasks'.`;

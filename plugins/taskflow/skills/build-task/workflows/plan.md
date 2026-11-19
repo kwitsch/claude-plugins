@@ -32,14 +32,14 @@ checker is a fully inline agent.
 
 ## Parameters (`args` object)
 
-| Key                   | Type    | Required | Meaning                                                                                                                              |
-| :-------------------- | :------ | :------- | :----------------------------------------------------------------------------------------------------------------------------------- |
-| `SPEC_PATH`           | string  | yes      | Absolute path of the user-approved spec file (the spec script's `specPath`)                                                          |
-| `PLAN_PATH`           | string  | yes      | Absolute temp path where the planner writes the plan (session scratch, never in the repo)                                            |
-| `SIZE`                | string  | no       | `''` (default). Task size `S` / `M` / `L` / `XL` from build-task's size step (case-insensitive); picks the planner model             |
-| `GRAPHMIND_AVAILABLE` | bool    | no       | Default `false`. `true` ⇒ the planner confirms paths/signatures via the graphmind MCP tools (`project` = `REPO_PATH`)                |
-| `REPO_PATH`           | string  | no       | Default `''`. Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**            |
-| `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the planner get a hint to use jev-api's `score` tool; they accept its answer only at `confidence >= 0.6` |
+| Key                   | Type    | Required | Meaning                                                                                                                                                     |
+| :-------------------- | :------ | :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SPEC_PATH`           | string  | yes      | Absolute path of the user-approved spec file (the spec script's `specPath`)                                                                                 |
+| `PLAN_PATH`           | string  | yes      | Absolute temp path where the planner writes the plan (session scratch, never in the repo)                                                                   |
+| `SIZE`                | string  | no       | `''` (default). Task size `S` / `M` / `L` / `XL` from build-task's size step (case-insensitive); picks the planner model                                    |
+| `GRAPHMIND_AVAILABLE` | bool    | no       | Default `false`. `true` ⇒ the planner confirms paths/signatures via the graphmind MCP tools (`project` = `REPO_PATH`)                                       |
+| `REPO_PATH`           | string  | no       | Default `''`. Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                   |
+| `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the planner get a hint to use jev-api's `request` tool (a `score` question); they accept its answer only at `confidence >= 0.6` |
 
 Guards: missing required keys, a `SPEC_PATH` or `PLAN_PATH` that
 is not an absolute path, or `GRAPHMIND_AVAILABLE: true` with an empty or

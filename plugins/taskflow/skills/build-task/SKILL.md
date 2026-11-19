@@ -215,22 +215,23 @@ Every pipeline file is session-only, never a repository file:
       stop. `complete` → keep `explorePath` and `subsystems`. Explore runs
       once per invocation; resumes and corrections never re-run it.
    3. **Size** (once per invocation; reused on every resume and correction
-      re-run). `ToolSearch(query: "select:mcp__jev-api__score")`. Schema
+      re-run). `ToolSearch(query: "select:mcp__jev-api__request")`. Schema
       returned ⇒ `JEV_AVAILABLE = true` (tool availability only — independent
       of whether the size answer below is accepted), otherwise `false`; hold it
-      like `GRAPHMIND_AVAILABLE`. Schema returned → call `mcp__jev-api__score` with `state` = the task text plus
-      one line per returned subsystem (`<name> — <focus>`),
-      `instructions: "How large is the work?"` and `criteria` = these four
-      strings, in this order:
+      like `GRAPHMIND_AVAILABLE`. Schema returned → call `mcp__jev-api__request` with `state` = the task text plus
+      one line per returned subsystem (`<name> — <focus>`) and
+      `questions` = one `score` question,
+      `{"type": "score", "instructions": "How large is the work?", "criteria": [...]}`,
+      with these four strings as `criteria`, in this order:
       - `S: a few lines in one place`
       - `M: one component`
       - `L: several functionalities, modules or subprojects`
       - `XL: cross-cutting or architectural`
 
-      Accept when the result parses as JSON with `type: "score"`, a numeric
+      Accept when the result parses as a JSON array whose first element has `type: "score"`, a numeric
       `score` and `confidence >= 0.6`: `SIZE` = `["S","M","L","XL"][Math.round(score)]`
       (index clamped to 0..3); print one line `Size: <X> (jev-api, confidence <c>)`.
-      Otherwise — no schema, a result string starting with `score:`,
+      Otherwise — no schema, a result string starting with `request:`,
       unparsable, or lower confidence — decide `SIZE` yourself against the
       same four criteria from the same inputs and print one line
       `Size: <X> (own reasoning: <reason>)`. No retry loop; sizing never
