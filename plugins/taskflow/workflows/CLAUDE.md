@@ -61,13 +61,14 @@ result file (`IMPLEMENT_PATH`, `REVIEW_PATH`) through an identical `persist()`
 helper (only its `phase` label differs): a `haiku` scribe writes the text with
 a Bash heredoc (`TASKFLOW_JSON_EOF`, never the Write or Edit tool — the
 universal-format hook would reformat it), then reports `wc -c`; the script
-accepts any reported size of at least 90% of the expected UTF-8 byte count
-(only a clearly truncated or empty write fails; a trailing newline or
-format-hook growth passes), with one retry. A failed write is an explicit
+accepts only the expected UTF-8 byte count or that plus one (the heredoc's
+newline), with one retry — a truncated JSON file must never pass. A failed write is an explicit
 `status: "error"` whose return still carries what the skill needs (Implement:
 `tasks`/`waves`/`results`/`minorFindings`; Review: `applied`/`escalatedToUser`).
-The explore scribe uses the same check but writes with the Write tool, whose
-format hook can change a complete file's size.
+The explore scribe also writes with a Bash heredoc (`TASKFLOW_MD_EOF`) but keeps
+a relaxed check: any reported size of at least `MIN_WRITE_RATIO` (0.9) of the
+expected UTF-8 byte count passes (oversize included), so a complete markdown
+file is never rejected over a few bytes of drift.
 
 ## Conditional graphmind path (build-task explorers, delivery planner)
 

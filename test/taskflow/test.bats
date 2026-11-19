@@ -223,7 +223,7 @@ followed_by() { # <head> <next> <file>
 @test "explore.workflow.js: meta, args guard, NO_NARRATION on every prompt, graphmind path, scribe" {
   F="$WORKFLOWS/build-task-explore.workflow.js"
   [ -s "$F" ]
-  for p in 'export const meta = {' 'name: "build-task-explore"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH"], { GRAPHMIND_AVAILABLE: false, REPO_PATH: "" })' 'const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";' 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'seenProposedNames' 'explorer: "haiku"' 'scribe: "haiku"' 'required: ["subsystems"]' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' '## Recorded project knowledge (graphmind memory)' 'scribePrompt = `${NO_NARRATION}' '<<<BEGIN>>>' 'label: "scribe:retry"' 'scribe could not write EXPLORE_PATH' 'w.bytes >= expectedBytes * 0.9' 'expected at least ' 'explorePath: EXPLORE_PATH'; do
+  for p in 'export const meta = {' 'name: "build-task-explore"' 'function decodeArgs' 'decodeArgs(["TASK", "EXPLORE_PATH"], { GRAPHMIND_AVAILABLE: false, REPO_PATH: "" })' 'const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";' 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'seenProposedNames' 'explorer: "haiku"' 'scribe: "haiku"' 'required: ["subsystems"]' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH' '## Recorded project knowledge (graphmind memory)' 'scribePrompt = `${NO_NARRATION}' '<<<BEGIN>>>' 'label: "scribe:retry"' 'scribe could not write EXPLORE_PATH' 'w.bytes >= minBytes' 'expected at least ' 'explorePath: EXPLORE_PATH'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1273,7 +1273,7 @@ mm_git_fixture() {
 @test "implement.workflow.js: plan loader with validation, wave rules, merger role file, heredoc scribe, uniform returns" {
   F="$WORKFLOWS/build-task-implement.workflow.js"
   [ -s "$F" ]
-  for p in 'name: "build-task-implement"' 'decodeArgs(["PLAN_PATH", "IMPLEMENT_PATH", "BRANCH_NAME", "SCRATCH_DIR"]' 'must be an absolute path' 'loader: "haiku"' 'merger: "haiku"' 'scribe: "haiku"' 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' 'complex: "sonnet"' 'label: "load-plan"' 'label: "load-plan:retry"' 'required: ["constraints", "tasks", "taskHeadings"]' 'p.tasks.length === p.taskHeadings' 'could not load the plan tasks from PLAN_PATH' 'agentType: "taskflow:worktree-merger"' 'protocol, and toplevel self-report per your role definition.' 'testEvidencePath: { type: "string" }' '"testEvidencePath", "deviations"' 'tevPathFor' 'test-evidence-task-' 'named by testEvidencePath' 'isolated ? { isolation: "worktree" } : {}' 'runTask(waveTasks[0], false)' 'runTask(t, true)' 'if (isolated && approved.length)' 'single-task wave: no worktree, no merge step' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'w.bytes >= expectedBytes * 0.9' 'label: "persist:retry"' 'NEVER the Write or Edit tool' 'could not write IMPLEMENT_PATH — all tasks are committed on ' 'return { status: "complete", implementPath: IMPLEMENT_PATH, tasks: taskList, waves, minorFindings: minorLedger };' 'tasks: [], waves: [], results: [], minorFindings: []'; do
+  for p in 'name: "build-task-implement"' 'decodeArgs(["PLAN_PATH", "IMPLEMENT_PATH", "BRANCH_NAME", "SCRATCH_DIR"]' 'must be an absolute path' 'loader: "haiku"' 'merger: "haiku"' 'scribe: "haiku"' 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' 'complex: "sonnet"' 'label: "load-plan"' 'label: "load-plan:retry"' 'required: ["constraints", "tasks", "taskHeadings"]' 'p.tasks.length === p.taskHeadings' 'could not load the plan tasks from PLAN_PATH' 'agentType: "taskflow:worktree-merger"' 'protocol, and toplevel self-report per your role definition.' 'testEvidencePath: { type: "string" }' '"testEvidencePath", "deviations"' 'tevPathFor' 'test-evidence-task-' 'named by testEvidencePath' 'isolated ? { isolation: "worktree" } : {}' 'runTask(waveTasks[0], false)' 'runTask(t, true)' 'if (isolated && approved.length)' 'single-task wave: no worktree, no merge step' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'w.bytes === expectedBytes || w.bytes === expectedBytes + 1' 'label: "persist:retry"' 'NEVER the Write or Edit tool' 'could not write IMPLEMENT_PATH — all tasks are committed on ' 'return { status: "complete", implementPath: IMPLEMENT_PATH, tasks: taskList, waves, minorFindings: minorLedger };' 'tasks: [], waves: [], results: [], minorFindings: []'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1307,7 +1307,7 @@ mm_git_fixture() {
 @test "review.workflow.js: LEVEL arg (never derived), three plugin agents, lean pass, apply, heredoc scribe, returns" {
   F="$WORKFLOWS/build-task-review.workflow.js"
   [ -s "$F" ]
-  for p in 'name: "build-task-review"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "REVIEW_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", LEVEL: "high" })' 'if (LEVEL !== "high" && LEVEL !== "max")' 'must be an absolute path' 'phase("Review")' 'phase("Apply")' 'const SWEEP_MAX = 8;' 'const PONYTAIL_MAX = 8;' 'synthesizer: "opus"' 'finder: "sonnet"' 'verifier: "sonnet"' 'applier: "sonnet"' 'ponytailReviewer: "sonnet"' 'scribe: "haiku"' 'r.verdicts || []' 'Array.isArray(r.candidates)' 'Array.isArray(sweep.candidates)' 'PONYTAIL_REVIEW_SCHEMA' 'over-engineering ONLY' 'USER-APPROVED' 'verifyGroups(ponytailCandidates)' 'combinedLocs' 'findings.filter((f) => !f.reversesDecision)' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'w.bytes >= expectedBytes * 0.9' 'NEVER the Write or Edit tool' 'error: "could not write REVIEW_PATH", level: LEVEL, applied: applyReport, escalatedToUser: escalated, ponytailReview' 'reviewPath: REVIEW_PATH' 'findingCount: findings.length' 'escalatedToUser: escalated'; do
+  for p in 'name: "build-task-review"' 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "REVIEW_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", LEVEL: "high" })' 'if (LEVEL !== "high" && LEVEL !== "max")' 'must be an absolute path' 'phase("Review")' 'phase("Apply")' 'const SWEEP_MAX = 8;' 'const PONYTAIL_MAX = 8;' 'synthesizer: "opus"' 'finder: "sonnet"' 'verifier: "sonnet"' 'applier: "sonnet"' 'ponytailReviewer: "sonnet"' 'scribe: "haiku"' 'r.verdicts || []' 'Array.isArray(r.candidates)' 'Array.isArray(sweep.candidates)' 'PONYTAIL_REVIEW_SCHEMA' 'over-engineering ONLY' 'USER-APPROVED' 'verifyGroups(ponytailCandidates)' 'combinedLocs' 'findings.filter((f) => !f.reversesDecision)' 'async function persist(path, obj)' 'TASKFLOW_JSON_EOF' 'w.bytes === expectedBytes || w.bytes === expectedBytes + 1' 'NEVER the Write or Edit tool' 'error: "could not write REVIEW_PATH", level: LEVEL, applied: applyReport, escalatedToUser: escalated, ponytailReview' 'reviewPath: REVIEW_PATH' 'findingCount: findings.length' 'escalatedToUser: escalated'; do
     run rg_or_grep -F -- "$p" "$F"
     [ "$status" -eq 0 ]
   done
@@ -1405,18 +1405,25 @@ mm_git_fixture() {
   [ "$status" -ne 0 ]
 }
 
-@test "scribe/persist size checks use the 90% truncation floor, never the exact-size check" {
-  for n in explore implement review; do
+@test "explore scribe uses a named 90% truncation floor and a Bash heredoc; implement/review persist keep the exact-size check" {
+  f="$WORKFLOWS/build-task-explore.workflow.js"
+  run rg_or_grep -cF 'w.bytes >= minBytes' "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+  run rg_or_grep -F 'const MIN_WRITE_RATIO = 0.9;' "$f"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'TASKFLOW_MD_EOF' "$f"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'expectedBytes + 1' "$f"
+  [ "$status" -ne 0 ]
+  for n in implement review; do
     f="$WORKFLOWS/build-task-$n.workflow.js"
-    run rg_or_grep -cF 'w.bytes >= expectedBytes * 0.9' "$f"
+    run rg_or_grep -cF 'w.bytes === expectedBytes || w.bytes === expectedBytes + 1' "$f"
     [ "$status" -eq 0 ]
     [ "$output" = "1" ]
-    run rg_or_grep -F 'expectedBytes + 1' "$f"
+    run rg_or_grep -F '0.9' "$f"
     [ "$status" -ne 0 ]
   done
-  # plain grep: rg's -r means --replace, so rg_or_grep cannot take -r
-  run grep -rF 'expectedBytes + 1' "$PLUGIN"
-  [ "$status" -ne 0 ]
   for d in "$WORKFLOWS/CLAUDE.md" "$BT_WF/explore.md" "$BT_WF/implement.md" "$BT_WF/review.md"; do
     for absent in 'that count plus one' 'byte count is verified'; do
       run rg_or_grep -F -- "$absent" "$d"
