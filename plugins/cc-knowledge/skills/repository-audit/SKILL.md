@@ -49,7 +49,7 @@ ROOT="${1:-.}"
 
 This presence bar (root `CLAUDE.md`; `.claude/rules/` directory) is a policy this
 skill declares itself — it is deliberately not drawn from `cc-reference`
-(`claude-code-memory-reference.md` documents both as optional; no upstream rule
+(`claude-code-memory.reference.md` documents both as optional; no upstream rule
 mandates their existence). A missing item is a finding for the final report:
 report it as a manual to-do pointing at this plugin's own `cc-author` skill for
 grounded creation — never auto-generate content for it. Phase 1 has no `--fix`

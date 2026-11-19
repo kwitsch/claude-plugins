@@ -677,7 +677,7 @@ mcp__github__*
 - `claude mcp add-from-claude-desktop` — import Claude Desktop servers (macOS/WSL). Names with characters outside letters/numbers/hyphens/underscores are reported and skipped; duplicate names get a numeric suffix (e.g. `server_1`).
 - `CLAUDE_CONFIG_DIR` env var relocates `.claude.json`.
 - OTEL: `OTEL_LOG_TOOL_DETAILS=1` includes MCP server/tool names in tool events (see `/en/monitoring-usage`).
-- Managed/enterprise MCP restrictions (`managed-mcp.json`, `allowedMcpServers`/`deniedMcpServers`, `allowManagedMcpServersOnly`, `allowAllClaudeAiMcps`): see `claude-code-mcp-managed-reference.md`.
+- Managed/enterprise MCP restrictions (`managed-mcp.json`, `allowedMcpServers`/`deniedMcpServers`, `allowManagedMcpServersOnly`, `allowAllClaudeAiMcps`): see `claude-code-mcp-managed.reference.md`.
 
 ## Version notes
 

@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide, verified 2026-11-18.
 > Scope: event catalog, config schema, matchers, I/O, exit codes, decision control, scopes. Out of scope: plugin "mods" (JavaScript function hooks Claude Code calls in-process, can draw UI; separate docs page) — they run alongside the hooks here.
-> For choosing a handler `type` (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent), see **hook-handler-selection.md** — not repeated here.
+> For choosing a handler `type` (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent), see **hook-handler-selection.reference.md** — not repeated here.
 
 ## Model: three nesting levels
 
@@ -114,7 +114,7 @@ Cadence: once/session (SessionStart, SessionEnd), once/turn (UserPromptSubmit, S
 
 ## Handler types (field tables)
 
-Five `type` values: `command` | `http` | `mcp_tool` | `prompt` | `agent`. **Choice criteria → hook-handler-selection.md.**
+Five `type` values: `command` | `http` | `mcp_tool` | `prompt` | `agent`. **Choice criteria → hook-handler-selection.reference.md.**
 
 Common fields (all types): `type` (req), `if`, `timeout` (defaults: 600s command/http/mcp_tool, 30s prompt, 60s agent; UserPromptSubmit/PreModelSwitch/PostModelSwitch lower command/http/mcp_tool to 30, MessageDisplay to 10; SessionEnd shares a 1.5s budget; `timeout` isn't enforced on an `async:true` command hook, but is on `asyncRewake`), `statusMessage`, `once` (skill-frontmatter only; ignored in settings files/agent frontmatter; removes the hook after its first successful run — a run that fails, blocks with exit 2, or times out leaves it in place).
 
@@ -336,7 +336,7 @@ Content rewriting: PreToolUse `updatedInput` (before run), PostToolUse `updatedT
 
 - PreToolUse fires BEFORE any permission-mode check (every mode, incl. `dontAsk`) → `permissionDecision:"deny"` blocks even in `bypassPermissions` / `--dangerously-skip-permissions`. Reverse fails: `"allow"` never overrides settings deny rules, ask rules, org-set-to-`ask` connector tools, or `requiresUserInteraction` MCP tools (hooks tighten, never loosen). Deny rules from any scope (incl. managed) outrank hook approvals. A plugin "mod" handling `tool.check` can approve a call your `PreToolUse` hook blocked, unless the hook is in managed settings. Applies only when the machine has no managed settings and the session doesn't use `/login` credentials for a Team/Enterprise plan; a session on an API key or a long-lived `CLAUDE_CODE_OAUTH_TOKEN` isn't using that login. In plan mode a mod can approve such a blocked call only when it's read-only (not a file edit).
 - No controlling terminal (macOS/Linux ≥v2.1.139): no `/dev/tty`. Surface via `systemMessage`; notify via `terminalSequence`.
-- Security/irreversible gates → permission system, NOT hooks. `if` and http/mcp_tool fail OPEN (see hook-handler-selection.md). A `command`/`http` hook used as a gate can fail CLOSED with `onFailure:"block"` (version >= 2.1.295 — see **onFailure**).
+- Security/irreversible gates → permission system, NOT hooks. `if` and http/mcp_tool fail OPEN (see hook-handler-selection.reference.md). A `command`/`http` hook used as a gate can fail CLOSED with `onFailure:"block"` (version >= 2.1.295 — see **onFailure**).
 - `command` holds no state between fires; stateful/expensive init → persistent server via `mcp_tool`/`http`.
 - Hook-only `mcp_tool` triggers are config-driven; keep them off the model tool surface to avoid context/token cost.
 - Debug log (version >= 2.1.296): each command hook on a tool event, `UserPromptSubmit`, `SessionStart`, `Stop` and several others logs a `Hooks: <Event>:<matched value> [<command>] [<plugin>] finished with status N (Nms)` line (other endings: `timed out after <N>ms`, `cancelled`, `moved to the background`, `failed to start`); `Notification`/`SessionEnd`/`PreCompact` log `completed with status` without a duration. Search `Hooks:` to find a slow hook.

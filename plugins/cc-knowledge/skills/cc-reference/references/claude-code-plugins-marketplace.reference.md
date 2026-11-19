@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Plugin marketplaces, Plugin dependencies, Plugin hints), verified 2026-10-30.
-> Split out of claude-code-plugins-reference.md to keep that file under its line budget;
+> Split out of claude-code-plugins.reference.md to keep that file under its line budget;
 > linked from that file's "## Marketplace" pointer.
 
 ## marketplace.json schema
@@ -34,7 +34,7 @@ Separately, a marketplace `name` can never be `npm`, `pip`, `uv`, `cargo`, `gith
 
 ### Plugin entry fields
 
-An entry may carry any field from the [plugin.json schema](claude-code-plugins-reference.md#standard-metadata-fields) (including `dependencies`) plus these marketplace-specific fields. Exception: the directory listing fields `icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl`, `termsOfServiceUrl` belong in `plugin.json` only — in a marketplace entry `claude plugin validate` reports each as an unknown field (Anthropic's directory reads them from `plugin.json` on submission; Claude Code ignores them at load time; `plugin.json` containing them validates without warning on version >= 2.1.281, earlier versions warn `Unknown field`).
+An entry may carry any field from the [plugin.json schema](claude-code-plugins.reference.md#standard-metadata-fields) (including `dependencies`) plus these marketplace-specific fields. Exception: the directory listing fields `icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl`, `termsOfServiceUrl` belong in `plugin.json` only — in a marketplace entry `claude plugin validate` reports each as an unknown field (Anthropic's directory reads them from `plugin.json` on submission; Claude Code ignores them at load time; `plugin.json` containing them validates without warning on version >= 2.1.281, earlier versions warn `Unknown field`).
 
 **Standard metadata fields:**
 

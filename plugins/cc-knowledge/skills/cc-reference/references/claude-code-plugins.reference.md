@@ -5,7 +5,7 @@
 > verified 2026-11-18.
 > Apply when creating, reviewing, or distributing a Claude Code plugin.
 > Hook events/schema, agent frontmatter, MCP server config, and settings keys are owned by
-> sibling refs (claude-code-hooks-reference.md, -agents-, -mcp-, -settings-); kept pointer-level here.
+> sibling refs (claude-code-hooks.reference.md, -agents-, -mcp-, -settings-); kept pointer-level here.
 
 ## What a plugin is / components
 
@@ -217,7 +217,7 @@ The manifest is optional. When `plugin.json` is absent or does not declare expli
 
 ## Marketplace
 
-A marketplace is a `marketplace.json` catalog that lets users browse and install plugins via `/plugin` or CLI. Full schema (required/optional top-level fields, plugin entry fields, source types, validate): see `references/claude-code-plugins-marketplace-reference.md`.
+A marketplace is a `marketplace.json` catalog that lets users browse and install plugins via `/plugin` or CLI. Full schema (required/optional top-level fields, plugin entry fields, source types, validate): see `references/claude-code-plugins-marketplace.reference.md`.
 
 - A plugin marketplace is NOT Claude Marketplace (the claude.com/marketplace website, not addable with `/plugin marketplace add`).
 - Inside a session, `/plugin marketplace add <source>` registers a marketplace like the CLI; `/plugin install <plugin>@<marketplace>` opens the plugin's details in the `/plugin` panel, where the install is confirmed.
@@ -427,7 +427,7 @@ Non-interactive plugin management commands.
 | `CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS`                          | Override the 120 000 ms git clone/pull timeout.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `GITHUB_TOKEN`/`GH_TOKEN`, `CLAUDE_CODE_PLUGIN_PREFER_HTTPS` | Private-repo marketplace auth. A provider token in the environment does NOT by itself authenticate — it takes effect only through a configured git credential helper (e.g. `gh auth setup-git`, which reads `GH_TOKEN`/`GITHUB_TOKEN`). Manual install/update uses credential helpers + ssh-agent; the background `git pull` DISABLES helpers (SSH keys in ssh-agent still authenticate), then falls back to a full re-clone that does use stored credentials. To authenticate the background pull itself, add a global git URL rewrite scoped to the marketplace repo/org — never to the bare host (GitHub `x-access-token:TOKEN@`, GitLab `oauth2:TOKEN@`, Bitbucket `x-token-auth:TOKEN@`). `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` clones GitHub `owner/repo` shorthand sources over HTTPS instead of the default SSH. |
 
-### Settings keys (in settings.json; details in claude-code-settings-reference.md)
+### Settings keys (in settings.json; details in claude-code-settings.reference.md)
 
 | Key                       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -439,7 +439,7 @@ Non-interactive plugin management commands.
 
 ## LSP servers
 
-Component that supplies code-intelligence (completions, diagnostics, hover) to Claude Code's editor integration via `.lsp.json` / `lspServers`. Full schema (required/optional fields, scopes, example, official LSP plugins): see `references/claude-code-plugins-lsp-reference.md`.
+Component that supplies code-intelligence (completions, diagnostics, hover) to Claude Code's editor integration via `.lsp.json` / `lspServers`. Full schema (required/optional fields, scopes, example, official LSP plugins): see `references/claude-code-plugins-lsp.reference.md`.
 
 ## Monitors
 
@@ -501,7 +501,7 @@ Array of entries; declare inline via `experimental.monitors` (array) or load fro
 - version >= 2.1.281: `claude plugin validate` accepts the directory-listing fields (`icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl`, `termsOfServiceUrl`) without an `Unknown field` warning and checks MCP server entries (see [Unrecognized fields](#unrecognized-fields)).
 - version >= 2.1.283: `claude plugin validate` checks existence/containment of `outputStyles`, `lspServers`, `monitors`, and `themes` paths.
 - version >= 2.1.323: `engines` plugin.json field (Claude Code version range the plugin works on); earlier versions in the 2.0.15-2.1.75 range reject it as an unrecognized key.
-- version >= 2.1.288: LSP `requestTimeout` field (ms to wait for a server answer, default 60000); schema in `references/claude-code-plugins-lsp-reference.md`.
+- version >= 2.1.288: LSP `requestTimeout` field (ms to wait for a server answer, default 60000); schema in `references/claude-code-plugins-lsp.reference.md`.
 - version >= 2.1.295: marketplace git-submodule fetch limited to submodules holding plugin files (see [Marketplace](#marketplace)).
 - Version lives ONLY in `.claude-plugin/plugin.json` (repo convention). Resolution order: plugin.json → marketplace entry → git SHA → archive digest → `unknown` (npm/non-git).
 - Omitting `version`: git commit SHA used; updates on every new commit. Setting it: updates only on version change; bump every release.

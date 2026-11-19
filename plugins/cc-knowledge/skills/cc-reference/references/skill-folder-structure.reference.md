@@ -4,7 +4,7 @@
 
 Directory layout of a Claude Code skill, plus this plugin's convention for where
 reference files live. Mechanics of _what a skill is_ and its frontmatter live in
-`claude-code-skills-reference.md`; this file is layout-only.
+`claude-code-skills.reference.md`; this file is layout-only.
 
 ## Skill directory layout
 
@@ -47,17 +47,17 @@ This plugin's layout rule for a skill's bundled reference/knowledge files:
 cc-reference/
   SKILL.md
   references/
-    claude-code-skills-reference.md
-    claude-code-agents-reference.md
-    claude-code-hooks-reference.md
-    hook-handler-selection.md
-    claude-code-commands-reference.md
-    claude-code-mcp-reference.md
-    claude-code-mcp-managed-reference.md
-    claude-code-plugins-reference.md
-    claude-code-plugins-marketplace-reference.md
-    claude-code-plugins-lsp-reference.md
-    claude-code-memory-reference.md
-    claude-code-settings-reference.md
-    skill-folder-structure.md
+    claude-code-skills.reference.md
+    claude-code-agents.reference.md
+    claude-code-hooks.reference.md
+    hook-handler-selection.reference.md
+    claude-code-commands.reference.md
+    claude-code-mcp.reference.md
+    claude-code-mcp-managed.reference.md
+    claude-code-plugins.reference.md
+    claude-code-plugins-marketplace.reference.md
+    claude-code-plugins-lsp.reference.md
+    claude-code-memory.reference.md
+    claude-code-settings.reference.md
+    skill-folder-structure.reference.md
 ```

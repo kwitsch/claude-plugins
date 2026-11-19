@@ -134,5 +134,5 @@ Summarize:
   - commit `.claude/skills/lsp/` so worktrees and teammates get it.
 
 For the `.lsp.json` field reference, point at
-`plugins/cc-knowledge/skills/cc-reference/references/claude-code-plugins-lsp-reference.md`
+`${CLAUDE_SKILL_DIR}/../cc-reference/references/claude-code-plugins-lsp.reference.md`
 — do not restate the schema here.

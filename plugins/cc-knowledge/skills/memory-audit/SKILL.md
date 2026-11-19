@@ -59,7 +59,7 @@ empty, tell the user and stop.
 
 ## 3. Analyze files (Workflow)
 
-Read `${CLAUDE_SKILL_DIR}/analysis-workflow.md`, then run its Workflow
+Read `${CLAUDE_SKILL_DIR}/analysis-workflow.reference.md`, then run its Workflow
 script (or its Agent-tool fallback) to analyze every discovered path from
 §2. Inline the discovered file list and the scope note (from §1) as JS
 string/array literals directly in the script text — never via the

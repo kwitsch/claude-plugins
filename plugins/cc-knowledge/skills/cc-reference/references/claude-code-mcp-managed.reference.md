@@ -3,7 +3,7 @@
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Managed MCP), verified 2026-11-18.
 > Apply when deploying or troubleshooting enterprise MCP restrictions (`managed-mcp.json`,
-> allowlists/denylists). See `claude-code-mcp-reference.md` for general MCP config/auth/naming.
+> allowlists/denylists). See `claude-code-mcp.reference.md` for general MCP config/auth/naming.
 
 - Scope: these restrictions cover only servers Claude Code loads itself, including claude.ai
   connectors it fetches. Connectors the desktop app delivers to its own local and SSH sessions
@@ -218,7 +218,7 @@ Matching rules:
 - No `managed-mcp.json`, on any host, reaches the connectors the desktop app delivers to its own local and SSH sessions — those arrive in-process and are governed by claude.ai organization settings instead.
 - Allowlists and denylists still apply to those connectors. Plugin-provided servers stay suppressed.
 - Has no effect when placed in user or project settings. Read only from admin-controlled tiers: server-managed settings, an MDM-deployed plist or HKLM registry key, or a system `managed-settings.json`. version >= 2.1.149
-- To turn off all claude.ai connectors outright rather than filter them, see `disableClaudeAiConnectors` in `claude-code-mcp-reference.md`.
+- To turn off all claude.ai connectors outright rather than filter them, see `disableClaudeAiConnectors` in `claude-code-mcp.reference.md`.
 
 ## `allowClaudeInChromeWithManagedMcp`
 

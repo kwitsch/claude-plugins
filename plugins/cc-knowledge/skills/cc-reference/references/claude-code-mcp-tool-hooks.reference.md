@@ -6,15 +6,15 @@
      it on any refresh regardless; never regenerate this file wholesale. -->
 
 How to back a hook with an MCP-server tool (`type: "mcp_tool"`). For the general
-handler-type choice see `hook-handler-selection.md`; for hook mechanics see
-`claude-code-hooks-reference.md`; for MCP config/transports see
-`claude-code-mcp-reference.md`.
+handler-type choice see `hook-handler-selection.reference.md`; for hook mechanics see
+`claude-code-hooks.reference.md`; for MCP config/transports see
+`claude-code-mcp.reference.md`.
 
 ## When to use mcp_tool vs a command hook
 
 Five hook types exist: `command`, `http`, `mcp_tool`, `prompt`, `agent`. This table
 covers the `mcp_tool` vs `command` split; for `http`/`prompt`/`agent` see
-`hook-handler-selection.md`.
+`hook-handler-selection.reference.md`.
 
 | Situation                                                                                                                                                            | Handler                                                                                                    |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -165,7 +165,7 @@ plugins/<name>/
 - `agent` hook type added (5th type alongside `command`, `http`, `mcp_tool`, `prompt`);
   spawns an agentic verifier with tool access. Supported on the same events as
   `prompt` except `PermissionRequest`, where an `agent` hook is skipped and the
-  permission flow proceeds unchanged (see support-matrix in `claude-code-hooks-reference.md`).
+  permission flow proceeds unchanged (see support-matrix in `claude-code-hooks.reference.md`).
   Not supported on `SessionStart`, `Setup`, `MessageDisplay`, or any event the docs list
   as `command`/`http`/`mcp_tool`-only (e.g. `Notification`, `SessionEnd`, `PreCompact`).
 - `Elicitation` and `ElicitationResult` events added: fire during MCP server elicitation

@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Plugins reference — LSP servers section), verified 2026-10-30.
-> Split out of claude-code-plugins-reference.md to keep that file under its line budget;
+> Split out of claude-code-plugins.reference.md to keep that file under its line budget;
 > linked from that file's "## LSP servers" pointer.
 
 ## What LSP servers provide
@@ -17,7 +17,7 @@
 | Plugin-scoped | `<plugin-root>/.lsp.json` | Auto-discovered; extend via `lspServers` in `plugin.json` (string \| array \| object — `.json` path(s) or inline config); merges with the default file, does not replace it |
 
 - Load order: `<plugin-root>/.lsp.json` first, then each `lspServers` declaration in order; a server name declared later replaces an earlier one.
-- A project-root `.lsp.json` is not loaded by Claude Code — never author one. For project-local LSP config, wrap it in a project-scope skills-directory plugin: `<cwd>/.claude/skills/<name>/.claude-plugin/plugin.json` (`{"name": "<name>"}`) + `<cwd>/.claude/skills/<name>/.lsp.json`. It loads as `<name>@skills-dir`; see `claude-code-plugins-reference.md` "Skills-directory plugins".
+- A project-root `.lsp.json` is not loaded by Claude Code — never author one. For project-local LSP config, wrap it in a project-scope skills-directory plugin: `<cwd>/.claude/skills/<name>/.claude-plugin/plugin.json` (`{"name": "<name>"}`) + `<cwd>/.claude/skills/<name>/.lsp.json`. It loads as `<name>@skills-dir`; see `claude-code-plugins.reference.md` "Skills-directory plugins".
 - For skills-directory plugins installed at project scope (`<cwd>/.claude/skills/`), LSP servers start only after the user accepts the workspace trust dialog. Personal-scope skills-dir plugins have no such restriction.
 
 ## Server entry schema
