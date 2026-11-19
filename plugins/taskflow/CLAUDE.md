@@ -35,10 +35,11 @@ No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.c
 
 ## Generated pipeline artifacts are always English
 
-- The pipeline files (`explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`) written by the explore scribe, designer, spec writer and planner are always English, regardless of `$task_description`'s language.
-- Enforced by an explicit instruction in `agents/designer.md`, `agents/planner.md` and the inline spec-writer prompt in `workflows/build-task-spec.workflow.js` (the spec writer has no role file). The explore scribe (`workflows/build-task-explore.workflow.js`) adds no prose of its own: it writes the explorer reports verbatim.
+- Covered: the pipeline files `explore-<slug>.md`, `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`, `implement-<slug>.json` and `review-<slug>.json`, plus every agent's final report/structured output — always English, regardless of `$task_description`'s language.
+- Enforced by the final-message rule ("Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered."): `NO_NARRATION` in every workflow script that defines it, and the opening paragraph of every `agents/*.md` except `pr-author.md`. Plus the explicit English instructions in `agents/designer.md`, `agents/planner.md` and the inline spec-writer prompt in `workflows/build-task-spec.workflow.js` (the spec writer has no role file). The explore file holds only the explorer and memory-recall reports (no raw task text); the explore scribe (`workflows/build-task-explore.workflow.js`) adds no prose of its own.
 - Why: only other pipeline agents read these files, so a consistent working language beats mirroring the request.
-- Does not extend to the final human-facing report (`SKILL.md` step 5) or to reviewer finding text.
+- Not covered (human-facing, keep the repo/user language): `pr-body-<slug>.md` and the PR/MR title (`agents/pr-author.md` "Match the repo's documentation language"), commit messages, and the final human-facing report (`SKILL.md` step 5). Code and code comments written into the user's repo are not covered either.
+- `changes-review` shares the role files and keeps the same `NO_NARRATION`, so the findings `changes-audit` shows are English too.
 
 ## Resuming inside an existing worktree/PR
 

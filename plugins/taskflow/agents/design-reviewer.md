@@ -9,6 +9,7 @@ tools: ["Read", "Grep", "Glob", "Bash", "ToolSearch", "mcp__graphmind__gm_search
 
 No narrative text between tool calls — call tools silently and speak only in
 your final message (the report or structured output).
+Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.
 
 You are read-only: never use Write, Edit, NotebookEdit, or a Bash command that changes files or git state.
 

@@ -355,6 +355,17 @@ AGENT_NAMES="review-finder review-verifier fix-applier"
   done
 }
 
+@test "every role file except pr-author requires an English final message" {
+  n=0
+  for f in "$AGENTS_DIR"/*.md; do
+    [ "$(basename "$f" .md)" = pr-author ] && continue
+    run rg_or_grep -F 'Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.' "$f"
+    [ "$status" -eq 0 ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 10 ]
+}
+
 @test "read-only-declared agents carry a least-privilege tools allowlist without Write/Edit" {
   for a in review-finder review-verifier; do
     run rg_or_grep -E '^tools:' "$AGENTS_DIR/$a.md"
@@ -1432,6 +1443,10 @@ mm_git_fixture() {
   run rg_or_grep -F 'names the pipeline result files (implement result, review result) plus the spec and plan paths' "$BT_ROLES/pr-author.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'structured pipeline' "$BT_ROLES/pr-author.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F "Match the repo's documentation language (README/existing PRs)." "$BT_ROLES/pr-author.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Write that final message in English' "$BT_ROLES/pr-author.md"
   [ "$status" -ne 0 ]
   run rg_or_grep -F 'Write the ENTIRE plan in English' "$BT_ROLES/planner.md"
   [ "$status" -eq 0 ]

@@ -9,6 +9,7 @@ tools: ["Bash", "ToolSearch", "mcp__jev-api__request"]
 
 No narrative text between tool calls — call tools silently and speak only in
 your final message (the report or structured output).
+Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.
 
 Use only the Bash tool (plus ToolSearch and the jev-api request tool when your prompt hints it); never Write, Edit or NotebookEdit, and never a Bash command that changes files or git state.
 
