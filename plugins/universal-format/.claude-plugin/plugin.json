@@ -1,6 +1,6 @@
 {
   "name": "universal-format",
-  "version": "0.19.2",
+  "version": "0.19.3",
   "description": "Formats files in 17 languages (JS/TS, JSON, YAML, Markdown, CSS, HTML, Shell, Java, PHP, Kotlin, Python, Go, Rust and more) before every Write and Edit lands.",
   "author": {
     "name": "Kwitsch"
