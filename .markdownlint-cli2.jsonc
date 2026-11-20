@@ -9,7 +9,6 @@
   // (same list as dprint.json excludes, .oxlintrc.json ignorePatterns and tsconfig.json exclude).
   "ignores": [
     "plugins/dprint/**",
-    "plugins/inline-headroom/**",
     "plugins/universal-lint/**",
     "plugins/universal-format/**",
     "plugins/jevfort/**",

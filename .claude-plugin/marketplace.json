@@ -40,11 +40,6 @@
       "category": "productivity"
     },
     {
-      "name": "inline-headroom",
-      "source": "./plugins/inline-headroom",
-      "category": "productivity"
-    },
-    {
       "name": "dprint",
       "source": "./plugins/dprint",
       "category": "development"
