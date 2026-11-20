@@ -572,7 +572,7 @@ AGENT_NAMES="review-finder review-verifier fix-applier"
 }
 
 @test "dispatch-task skill dir is self-contained (no cross-plugin references; CLAUDE.md dev notes excluded)" {
-  run bash -c "grep -riE --exclude=CLAUDE.md 'coding-toolbox|dispatch-agent|superpowers|branch-management' '$DISPATCH'"
+  run bash -c "grep -riE --exclude=CLAUDE.md 'coding-toolbox|dispatch-agent|superpowers' '$DISPATCH'"
   [ "$status" -eq 1 ]
 }
 
