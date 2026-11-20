@@ -1,6 +1,6 @@
 {
   "name": "cc-knowledge",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Answers questions about authoring Claude Code skills, agents, hooks, MCP servers, plugins and settings from bundled references, and reviews, creates, compresses and audits them.",
   "author": {
     "name": "Kwitsch"
