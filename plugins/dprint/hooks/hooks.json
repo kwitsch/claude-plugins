@@ -1,5 +1,5 @@
 {
-  "modules": ["./register.mjs"],
+  "modules": ["./register.js"],
   "hooks": {
     "PreToolUse": [
       {
@@ -171,7 +171,7 @@
           },
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/watch-paths.mjs\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/watch-paths.mjs\"",
             "timeout": 30
           }
         ]
@@ -202,7 +202,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/watch-paths.mjs\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/watch-paths.mjs\"",
             "timeout": 30
           }
         ]
