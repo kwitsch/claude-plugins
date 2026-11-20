@@ -18,7 +18,6 @@
     "**/*.bats",
     "plugins/cc-knowledge",
     "plugins/dprint",
-    "plugins/inline-headroom",
     "plugins/universal-lint",
     "plugins/jevfort",
     "plugins/jev-api",

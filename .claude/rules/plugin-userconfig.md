@@ -48,8 +48,3 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
   invoked and its `init` action asks before every install, update or file
   write, so a toggle would only gate an already opt-in action. It is a synced
   plugin with no bats suite here.
-- `inline-headroom`'s content router (`detectContentType` / `ROUTES`,
-  2026-10-11) is infrastructure inside a plugin that does have toggles: it has
-  no behaviour of its own, and which text a lever sees is governed by that
-  lever's own toggle. Each future compressor it routes to brings its own
-  toggle. See `inline-headroom/CLAUDE.md` `## Content router` in kwitsch/claude-plugins-development.

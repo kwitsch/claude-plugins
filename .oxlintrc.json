@@ -6,7 +6,6 @@
     "**/*.workflow.js",
     "plugins/cc-knowledge/**",
     "plugins/dprint/**",
-    "plugins/inline-headroom/**",
     "plugins/universal-lint/**",
     "plugins/universal-format/**",
     "plugins/jevfort/**",
