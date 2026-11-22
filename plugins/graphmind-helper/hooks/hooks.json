@@ -1,3 +1,5 @@
 {
-  "modules": ["./register.js"]
+  "modules": [
+    "./register.js"
+  ]
 }

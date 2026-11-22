@@ -24,4 +24,4 @@ Does for Claude Code, from the plugin, what [`graphmind setup`](https://github.c
 
 The `graphmind` binary and a Claude Code version with function-hooks modules (mods).
 
-Requires `node` on `PATH`: the MCP wrapper `bin/mcp.mjs` runs on it. Without it the server shows as failed in `/mcp`, nothing gets indexed and the module adds nothing.
+Requires `node` on `PATH`: the MCP wrapper `mcp/mcp.mjs` runs on it. Without it the server shows as failed in `/mcp`, nothing gets indexed and the module adds nothing.
