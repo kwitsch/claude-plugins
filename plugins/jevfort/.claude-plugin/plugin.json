@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "description": "Lets Jev take routine steps and pick each turn's effort for you (needs the jev-api plugin).",
   "author": {
     "name": "Kwitsch"
