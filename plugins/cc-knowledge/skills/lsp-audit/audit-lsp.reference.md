@@ -1,6 +1,6 @@
 # audit-lsp — script reference
 
-**Invoke:** `node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs <project-root> [--fix | --apply <exts>]`
+**Invoke:** `node ${CLAUDE_SKILL_DIR}/audit-lsp.mjs <project-root> [--fix | --apply <exts>]`
 
 ## Parameters
 

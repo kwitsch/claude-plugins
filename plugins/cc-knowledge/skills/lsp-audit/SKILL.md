@@ -3,7 +3,7 @@ name: lsp-audit
 description: Audit a project's file extensions against the .lsp.json of its project-scope lsp plugin (.claude/skills/lsp/, created on first write) and add missing LSP server entries. A legacy project-root .lsp.json, which Claude Code no longer loads, is migrated into that plugin. With --fix, auto-adds the entries a bundled server catalog knows; without it, presents them as an AskUserQuestion multi-select. Unknown extensions are reported as manual to-dos, never guessed. Use when the user asks to audit, check, or fix a project's .lsp.json / LSP server coverage.
 argument-hint: [--fix] [project path]
 allowed-tools: Bash, Read, AskUserQuestion
-# review-skip(F1): unscoped Bash is required — the audit script (scripts/audit-lsp.mjs) runs against an arbitrary project root supplied at runtime, writes that project's .claude/skills/lsp/ plugin files, and deletes a migrated legacy project-root .lsp.json; allowed-tools only pre-approves, never restricts.
+# review-skip(F1): unscoped Bash is required — the audit script (audit-lsp.mjs) runs against an arbitrary project root supplied at runtime, writes that project's .claude/skills/lsp/ plugin files, and deletes a migrated legacy project-root .lsp.json; allowed-tools only pre-approves, never restricts.
 ---
 
 # lsp-audit — audit a project's lsp plugin and add missing LSP coverage
@@ -22,7 +22,7 @@ interacts via `AskUserQuestion` and drives the writing script; never run it as
 `context: fork`.
 
 All scan / diff / merge / safe-write / migrate logic lives in the zero-dep
-`scripts/audit-lsp.mjs`. This SKILL.md only orchestrates.
+`audit-lsp.mjs`. This SKILL.md only orchestrates.
 
 > **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
 > the user and the answers are a fixed / multiple-choice set, it MUST present the
@@ -37,16 +37,16 @@ Parse and strip `--fix` first; set `$FIX` = present/absent. Whatever non-flag
 text remains, trimmed, is the project path; default to `.` (the current working
 directory) when empty. Resolve it and call it `$ROOT`.
 
-## 2. Read scripts/audit-lsp.reference.md
+## 2. Read audit-lsp.reference.md
 
-Read `scripts/audit-lsp.reference.md` (colocated with the script) for the
+Read `audit-lsp.reference.md` (colocated with the script) for the
 script's invocation contract — the three modes, the `<project-root>` positional,
 `--fix`, `--apply <exts>`, the output-JSON schemas, and the exit codes. Per its
 table.
 
 ## 3. Run the audit
 
-    node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs "$ROOT"
+    node ${CLAUDE_SKILL_DIR}/audit-lsp.mjs "$ROOT"
 
 `${CLAUDE_SKILL_DIR}` is a bare pre-injection substitution token — never a live
 shell variable and never dynamic-context-injected. The script prints one JSON
@@ -72,7 +72,7 @@ Run when `$FIX` is set and step 4 did not stop. It applies every proposal and,
 when `legacyRootLspJson` is true, migrates the root `.lsp.json` into the plugin
 and deletes it with no confirmation, because `--fix` is the consent:
 
-    node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs "$ROOT" --fix
+    node ${CLAUDE_SKILL_DIR}/audit-lsp.mjs "$ROOT" --fix
 
 Parse the apply-summary JSON, then go to Report. If the script exits non-zero,
 report its printed error as is (it says when the plugin files were already
@@ -101,8 +101,8 @@ written but the root file could not be deleted) and stop.
    is pending (creating a missing manifest needs no confirmation), pass the empty
    list, which migrates the root file and adds nothing:
 
-       node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs "$ROOT" --apply ".py,.go,.css"
-       node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs "$ROOT" --apply ""
+       node ${CLAUDE_SKILL_DIR}/audit-lsp.mjs "$ROOT" --apply ".py,.go,.css"
+       node ${CLAUDE_SKILL_DIR}/audit-lsp.mjs "$ROOT" --apply ""
 
    The extension tokens are catalog-derived (each matches `^\.[A-Za-z0-9]+$`),
    never raw user free-text; the script re-validates each token. Parse the

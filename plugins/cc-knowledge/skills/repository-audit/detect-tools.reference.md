@@ -1,6 +1,6 @@
 # detect-tools — script reference
 
-**Invoke:** `node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs <project-root> [--write | --add <ids>]`
+**Invoke:** `node ${CLAUDE_SKILL_DIR}/detect-tools.mjs <project-root> [--write | --add <ids>]`
 
 ## Parameters
 

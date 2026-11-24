@@ -1,6 +1,6 @@
 # compress.mjs — script reference
 
-**Invoke:** `node ${CLAUDE_SKILL_DIR}/scripts/compress.mjs "<absolute-filepath>" "<backup-root>" [--confirmed]`
+**Invoke:** `node ${CLAUDE_SKILL_DIR}/compress.mjs "<absolute-filepath>" "<backup-root>" [--confirmed]`
 
 ## Parameters
 

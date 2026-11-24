@@ -3,7 +3,7 @@ name: repository-audit
 description: Run a full repository audit of a project's Claude Code setup end to end — first flag whether the baseline memory files (a root CLAUDE.md and a .claude/rules/ directory) exist, then run the existing lsp-audit LSP-coverage pass and the memory-audit memory-quality pass in sequence (forwarding the same --fix flag and repo path), offer the manual to-dos memory-audit returns (leanness trims, scope-split moves) for selection via AskUserQuestion (--fix applies them all), then detect the development tools the repository uses (runtimes, package managers, LSP servers — git, bash, curl and Claude Code are assumed present) and offer to create a project-level init-dev-environment skill that installs them at user level into ~/.local/bin (--fix creates it without asking) — or, when that skill already exists, offer per tool to add each detected tool it lacks (--fix adds them all) — and fold all four passes into one combined report with Structure, LSP audit, Memory audit, and Dev environment sections. Reuses lsp-audit and memory-audit verbatim via the Skill tool rather than re-implementing them; the phase-1 structure check is report-only and never writes. Use when the user asks to audit, check, or fix a repository's Claude Code memory structure or dev-environment setup, or to run a full repository audit.
 argument-hint: [--fix] [optional repo path]
 allowed-tools: Bash, Read, Edit, Write, Skill, AskUserQuestion
-# review-skip(F1): unscoped Bash/Edit/Write is required — the structure check runs test against an arbitrary repo root supplied at runtime, scripts/detect-tools.mjs scans that root and, on confirmation, writes or extends its .claude/skills/init-dev-environment/, and step 4 applies selected memory-audit manual tasks to arbitrary CLAUDE.md/.claude/rules files; allowed-tools only pre-approves, never restricts. Edit/Write are used only for those manual tasks; the other file creation this skill performs itself goes through scripts/detect-tools.mjs; the nested lsp-audit/memory-audit own their own writes under their own frontmatter.
+# review-skip(F1): unscoped Bash/Edit/Write is required — the structure check runs test against an arbitrary repo root supplied at runtime, detect-tools.mjs scans that root and, on confirmation, writes or extends its .claude/skills/init-dev-environment/, and step 4 applies selected memory-audit manual tasks to arbitrary CLAUDE.md/.claude/rules files; allowed-tools only pre-approves, never restricts. Edit/Write are used only for those manual tasks; the other file creation this skill performs itself goes through detect-tools.mjs; the nested lsp-audit/memory-audit own their own writes under their own frontmatter.
 ---
 
 # repository-audit — full Claude Code repository audit
@@ -17,7 +17,7 @@ four passes into one combined report. This skill reuses `lsp-audit` and
 `memory-audit` verbatim via the `Skill` tool — it adds the structure-presence
 check, the manual-task gate for `memory-audit`'s to-dos (step 4), the
 tool-detection phase (whose scanning and file writing live in
-`scripts/detect-tools.mjs`), and the orchestration/report wrapper. **This skill
+`detect-tools.mjs`), and the orchestration/report wrapper. **This skill
 runs inline (depth 0)** — it drives two nested inline skills in the same turn
 (each may raise its own `AskUserQuestion` gate) and raises its own step-6 gates;
 never run it as `context: fork`.
@@ -108,9 +108,9 @@ Stay inside `$ROOT`. When a to-do has no concrete target or the move would not
 apply cleanly, do not guess — leave it undone and report it as skipped. Never
 auto-commit.
 
-## 5. Read scripts/detect-tools.reference.md
+## 5. Read detect-tools.reference.md
 
-Read `scripts/detect-tools.reference.md` (colocated with the script) for the
+Read `detect-tools.reference.md` (colocated with the script) for the
 script's invocation contract — the audit, `--write` and `--add` modes, the
 `<project-root>` positional, the output-JSON schemas, and the exit codes. Per
 its table.
@@ -121,7 +121,7 @@ Only after step 4's inline flow fully resolves — step 3's lsp-audit may just
 have added `.lsp.json` servers such as `pylsp` or `gopls` — run:
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT"
+node ${CLAUDE_SKILL_DIR}/detect-tools.mjs "$ROOT"
 ```
 
 `${CLAUDE_SKILL_DIR}` is a bare pre-injection substitution token — never a live
@@ -158,7 +158,7 @@ object to stdout (the audit schema in the reference). Parse it, then:
 If confirmed, run the write and parse its JSON:
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --write
+node ${CLAUDE_SKILL_DIR}/detect-tools.mjs "$ROOT" --write
 ```
 
 - **`wrote: true`** — record the created path and the next step: review and
@@ -192,7 +192,7 @@ When no id is confirmed, run nothing and record the declined ids. Otherwise run
 the confirmed ids, comma-separated with no spaces, and parse the JSON:
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --add "<id>,<id>"
+node ${CLAUDE_SKILL_DIR}/detect-tools.mjs "$ROOT" --add "<id>,<id>"
 ```
 
 - **`added` is non-empty** — record "extended with `<added ids>`", plus any
