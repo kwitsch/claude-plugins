@@ -7,7 +7,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"
+            ],
             "timeout": 90,
             "asyncRewake": true
           }
@@ -19,7 +22,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"
+            ],
             "timeout": 30
           }
         ]
@@ -30,7 +36,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"
+            ],
             "timeout": 30
           }
         ]
@@ -41,7 +50,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"
+            ],
             "timeout": 90,
             "asyncRewake": true
           }
@@ -53,7 +65,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"
+            ],
             "timeout": 90
           }
         ]
@@ -64,7 +79,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"
+            ],
             "timeout": 90
           }
         ]
