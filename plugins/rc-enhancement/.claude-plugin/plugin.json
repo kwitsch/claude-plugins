@@ -1,6 +1,6 @@
 {
   "name": "rc-enhancement",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Makes Claude ask you through the AskUserQuestion tool instead of plain-text questions, and answer in clear lists instead of self-answered questions.",
   "author": {
     "name": "Kwitsch"
