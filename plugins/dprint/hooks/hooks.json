@@ -1,5 +1,7 @@
 {
-  "modules": ["./register.js"],
+  "modules": [
+    "./register.js"
+  ],
   "hooks": {
     "PreToolUse": [
       {
@@ -75,7 +77,9 @@
             "input": {
               "agent_id": "${agent_id}",
               "session_id": "${session_id}",
-              "tool_response": { "worktreePath": "${tool_response.worktreePath}" }
+              "tool_response": {
+                "worktreePath": "${tool_response.worktreePath}"
+              }
             }
           }
         ]
@@ -91,7 +95,9 @@
             "input": {
               "agent_id": "${agent_id}",
               "session_id": "${session_id}",
-              "tool_response": { "restoredCwd": "${tool_response.restoredCwd}" }
+              "tool_response": {
+                "restoredCwd": "${tool_response.restoredCwd}"
+              }
             }
           }
         ]
@@ -109,7 +115,9 @@
               "agent_id": "${agent_id}",
               "session_id": "${session_id}",
               "scratchpad_dir": "${scratchpad_dir}",
-              "tool_input": { "file_path": "${tool_input.file_path}" }
+              "tool_input": {
+                "file_path": "${tool_input.file_path}"
+              }
             }
           }
         ]
@@ -171,7 +179,10 @@
           },
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/watch-paths.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/watch-paths.mjs"
+            ],
             "timeout": 30
           }
         ]
@@ -202,7 +213,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/watch-paths.mjs\"",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/watch-paths.mjs"
+            ],
             "timeout": 30
           }
         ]
