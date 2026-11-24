@@ -1,6 +1,6 @@
 {
   "name": "graphmind-helper",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Makes Claude Code use graphmind's code graph and memory: a project briefing, memory recall on each prompt and search hints, with the project indexed on first use.",
   "author": {
     "name": "Kwitsch"
