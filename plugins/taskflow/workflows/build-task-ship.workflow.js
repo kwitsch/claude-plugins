@@ -114,11 +114,6 @@ const MODELS = {
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
 const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";
 
-// Shared tail for the PR-body prompts: the universal-format hook reformats
-// anything written through Write/Edit, so content that must reach disk
-// verbatim cannot go through them. Same wording as roles/pr-author.md.
-const WRITE_VIA_BASH_NOT_WRITE_EDIT = "NEVER the Write or Edit tool; the universal-format hook reformats those";
-
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const PR_TEXT = {
   type: "object",
@@ -208,10 +203,8 @@ let prText = !filesOk ? null : await agent(
     + "\n"
     + "Template discovery, structure, title/language conventions per your role\n"
     + "definition.\n"
-    + "Write the complete PR/MR body to this absolute file using Bash redirection\n"
-    + "(a `cat > \"<path>\" <<'EOF' … EOF` heredoc — "
-    + WRITE_VIA_BASH_NOT_WRITE_EDIT
-    + "): "
+    + "Write the complete PR/MR body with the Write tool to this absolute file\n"
+    + "(Read it first if it already exists): "
     + PR_BODY_PATH
     + "\n"
     + "Return the title inline and bodyPath set to exactly that path (do not return\n"
@@ -230,9 +223,7 @@ if (prText === null && filesOk) {
       + CONTEXT_FILES
       + "\nWrite the body to "
       + PR_BODY_PATH
-      + " via Bash redirection (heredoc — "
-      + WRITE_VIA_BASH_NOT_WRITE_EDIT
-      + "), then return bodyPath = that path with the title inline.",
+      + " with the Write tool (Read it first if it already exists); then return bodyPath = that path with the title inline.",
     { ...prOpts, label: "pr-author:retry" },
   );
 }

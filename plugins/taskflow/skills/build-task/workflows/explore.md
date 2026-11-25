@@ -48,10 +48,10 @@ One structured object; `status` is the discriminator. Consume only this return.
 
 ### `status: 'error'`
 
-| `stage`   | Meaning                                                                                                                                                           | Action                                                                  |
-| :-------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------- |
-| `args`    | Invocation malformed, or `args global is undefined` (threading quirk)                                                                                             | Fallback for `args global is undefined`; otherwise fix the call         |
-| `Explore` | Scout returned no result, all explorers returned null, or the scribe could not write `EXPLORE_PATH` intact (reported size below 90% of expected, after one retry) | Surface `stage` + `error` and stop; no file path is passed on to Design |
+| `stage`   | Meaning                                                                                                                                                                    | Action                                                                  |
+| :-------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------- |
+| `args`    | Invocation malformed, or `args global is undefined` (threading quirk)                                                                                                      | Fallback for `args global is undefined`; otherwise fix the call         |
+| `Explore` | Scout returned no result, all explorers returned null, or the scribe could not write `EXPLORE_PATH` intact (first attempt below 90% of the expected size, retry not exact) | Surface `stage` + `error` and stop; no file path is passed on to Design |
 
 ## Behavior notes
 
@@ -61,8 +61,8 @@ One structured object; `status` is the discriminator. Consume only this return.
   explorer report, and — graphmind path only, when memory recall found
   anything — `## Recorded project knowledge (graphmind memory)`.
 - Models: scout, explorers, memory recall and scribe on the `haiku` alias.
-- The scribe copies the text through a model, writing with a Bash heredoc
-  (never the Write or Edit tool), and reports `wc -c` of the file; the script
-  fails only when that is below 90% of the expected UTF-8 byte length (one
-  retry, then `stage: 'Explore'`). Oversize passes; a same-size or slightly
-  shorter alteration is not caught.
+- The scribe copies the text through a model, writing with the Write tool
+  (one retry, same method), and reports the size from a separate `wc -c`; the
+  script fails only when that is below 90% of the expected UTF-8 byte length
+  (after the retry: `stage: 'Explore'`). Oversize passes; a same-size or
+  slightly shorter alteration is not caught.

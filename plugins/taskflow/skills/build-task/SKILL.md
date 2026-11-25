@@ -94,11 +94,12 @@ the scripts via `agentType` — no skill directory is threaded through.
 
 Every pipeline file is session-only, never a repository file:
 
-- **Directory:** `<session scratchpad>/build-task/` when your system prompt
-  provides a scratchpad directory (create the subfolder); when none is
-  provided — or you are unsure dispatched workers can read that absolute
-  path — run `mktemp -d -t build-task-XXXXXX` once and use that. Neither
-  available → stop and report; every phase needs these files.
+- **Directory:** `<session scratchpad>/build-task/` from your system prompt's
+  scratchpad directory (create the subfolder). Pipeline files are written with the Write tool, and only the scratchpad is both outside the checkout (no worktree-isolation refusal) and skipped by the formatter hooks.
+  Only when no scratchpad is provided, run `mktemp -d -t build-task-XXXXXX` once and use that: a formatter hook may then
+  reformat a written file, which the scribes' size check catches and their
+  Bash retry writes unformatted. Neither available → stop and report; every
+  phase needs these files.
 - **`<slug>`:** the work-branch name without its `<type>/` prefix when a work
   branch is already checked out; otherwise kebab-case from
   `$task_description`, ≤40 chars (then also names the worktree directory and

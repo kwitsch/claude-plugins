@@ -257,7 +257,7 @@ if (USE_GRAPHMIND) {
 const scribeText = `# Exploration reports\n\n${explorationBlock}`;
 // UTF-8 byte length of the text the scribe must write; used to catch a clearly short (truncated or empty) write.
 const expectedBytes = encodeURIComponent(scribeText).replace(/%[0-9A-F]{2}/g, "x").length;
-const scribePrompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${EXPLORE_PATH} (create/overwrite), byte for byte — no edits, no summary, markers excluded — with a Bash heredoc: \`cat > "${EXPLORE_PATH}" <<'TASKFLOW_MD_EOF'\`, then the text, then a line holding only TASKFLOW_MD_EOF (NEVER the Write or Edit tool; the universal-format hook reformats those). Then run \`wc -c < "${EXPLORE_PATH}"\` and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${scribeText}\n<<<END>>>`;
+const scribePrompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${EXPLORE_PATH} (create/overwrite), byte for byte — no edits, no summary, markers excluded — with the Write tool (absolute path; if the file already exists, Read it first, Write refuses to overwrite an unread file). Then run \`wc -c < "${EXPLORE_PATH}"\` as a separate command and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${scribeText}\n<<<END>>>`;
 
 // Only a clearly short write fails: the scribe may add a trailing newline or drift slightly on a complete file.
 const MIN_WRITE_RATIO = 0.9;

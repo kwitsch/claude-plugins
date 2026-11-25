@@ -45,7 +45,7 @@ frontmatter model.
 | `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                                  |
 | `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the ci-monitor and ci-fixer get a hint to use jev-api's `request` tool (a `choice` question); they accept its answer only at `confidence >= 0.6` |
 | `BASE_BRANCH`         | string  | no       | Branch the work branch was cut from. Default `main`. PR/MR target                                                                                                            |
-| `PLUGIN_ROOT`         | string  | no       | Default `''`. Absolute plugin root; builds the `bin/ship-ensure-mergeable.mjs` path handed to the shipper. Empty or an unresolved `${…}` token → remediation skipped          |
+| `PLUGIN_ROOT`         | string  | no       | Default `''`. Absolute plugin root; builds the `bin/ship-ensure-mergeable.mjs` path handed to the shipper. Empty or an unresolved `${…}` token → remediation skipped         |
 
 Guards: missing required keys, or a `SPEC_PATH`, `PLAN_PATH`,
 `IMPLEMENT_PATH`, `REVIEW_PATH`, or `PR_BODY_PATH` that is not an
@@ -82,7 +82,7 @@ committed either way.
 - `pr-author` (`haiku` alias) Reads the implement and review result files plus
   the spec and plan and writes a faithful title/body (repo template respected,
   escalated findings listed as open items, lean-review findings report-only);
-  the body goes to `PR_BODY_PATH` through Bash redirection.
+  the body goes to `PR_BODY_PATH` with the Write tool (one retry).
 - `shipper` (`haiku`) pushes (NEVER force), creates-or-updates the PR/MR
   idempotently, then runs `bin/ship-ensure-mergeable.mjs` to ensure it is
   mergeable before ci-monitor runs (auto-updates a `behind` branch via the

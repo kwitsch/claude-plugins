@@ -37,7 +37,6 @@ Rules:
   does not show.
 
 Compose the body, then write it to the absolute path named in your runtime
-prompt using **Bash redirection** (a `cat > "<path>" <<'EOF' … EOF` heredoc —
-NEVER the Write or Edit tool; the `universal-format` hook reformats those).
+prompt with the **Write tool** (Read the file first if it already exists).
 Return `title` inline and `bodyPath` set to exactly that path through the
 structured output schema — never return the body text.

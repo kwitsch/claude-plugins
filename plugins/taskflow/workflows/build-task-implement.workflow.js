@@ -114,11 +114,9 @@ const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
 const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output). Write that final message in English, whatever the language of the task or its inputs; commit messages are not covered.";
 
-// Shared tail for every prompt that has an agent write a file verbatim via
-// Bash redirection: the universal-format hook reformats anything written
-// through Write/Edit, so content that must reach disk byte for byte cannot go
-// through them.
-const WRITE_VIA_BASH_NOT_WRITE_EDIT = "NEVER the Write or Edit tool; the universal-format hook reformats those";
+// Appended to the implementer, reviewer and fixer prompts: the worktree-isolation
+// guard refuses these Bash shapes, and a refused command fails again on repeat.
+const BASH_SHAPE_HINT = "Bash commands: the worktree-isolation guard refuses $(...), ${!var}, git -C and a cd to a computed path before git, and repeating a refused command fails the same way. Run plain commands with literal absolute paths; put a multi-step script into a file in " + SCRATCH_DIR + " with the Write tool and run it with one plain command.";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const TASK_ITEM = {
@@ -306,7 +304,8 @@ as ONE commit following the repo's commit conventions (no co-author trailers,
 no generated-with footers). Touch nothing outside the task's scope.
 Write every test/verification command you run and its full output to the
 absolute file ${tevPathFor(t)} via Bash redirection (append with
-\`{ echo "\$ <cmd>"; <cmd>; } 2>&1 | tee -a "<path>"\`, or a heredoc — ${WRITE_VIA_BASH_NOT_WRITE_EDIT}).
+\`{ echo "\$ <cmd>"; <cmd>; } 2>&1 | tee -a "<path>"\`; never overwrite it with the Write tool).
+${BASH_SHAPE_HINT}
 Before returning, run \`git branch --show-current\`,
 \`git rev-parse --show-toplevel\`, and \`git rev-parse HEAD\` and report their
 exact output, set testEvidencePath to that same absolute path, and report any
@@ -334,7 +333,9 @@ Check spec/plan compliance against the task text and these
 global constraints, then correctness: ${constraints}
 The test evidence is in the file named by testEvidencePath in the report — use
 the Read tool on it if you need it; do not re-run the tests the implementer
-already ran. Return your verdict through the structured output schema.`;
+already ran.
+${BASH_SHAPE_HINT}
+Return your verdict through the structured output schema.`;
 
 const fixerPrompt = (t, findings, worktreePath, branch) =>
   `${NO_NARRATION}${GM_IMPL("to find the code the findings point at and its callers")}
@@ -349,6 +350,7 @@ after the first silently runs in your default checkout.
 Plan file: ${PLAN_PATH}, task ${t.id} (${t.title}).
 Apply exactly these findings — nothing else — then commit (repo conventions,
 no co-author trailers): ${JSON.stringify(findings)}
+${BASH_SHAPE_HINT}
 Return: STATUS: done|blocked, commit hash, what changed.`;
 
 const mergerPrompt = (approved) =>
@@ -472,13 +474,15 @@ if (implementFailed) {
 }
 
 // ── Persist the result (read later by the pr-author of the ship script) ─────
-// The text reaches disk through a Bash heredoc, then its reported size must
-// equal the expected UTF-8 byte count (or that plus the heredoc's newline):
-// a truncated JSON file would break the pr-author's read, so no tolerance here.
+// The scribe writes with the Write tool (one retry, same method: the
+// worktree-isolation guard checks Bash command text, not Write); the reported
+// size must equal the expected UTF-8 byte count or one more (a trailing
+// newline): a truncated JSON file would break the pr-author's read, so no
+// other tolerance.
 async function persist(path, obj) {
   const text = JSON.stringify(obj, null, 2);
   const expectedBytes = encodeURIComponent(text).replace(/%[0-9A-F]{2}/g, "x").length;
-  const prompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${path} (create/overwrite), byte for byte — no edits, no summary, markers excluded — with a Bash heredoc: \`cat > "${path}" <<'TASKFLOW_JSON_EOF'\`, then the text, then a line holding only TASKFLOW_JSON_EOF (${WRITE_VIA_BASH_NOT_WRITE_EDIT}). Then run \`wc -c < "${path}"\` and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${text}\n<<<END>>>`;
+  const prompt = `${NO_NARRATION}\n\nWrite the text between the BEGIN/END markers below to ${path} (create/overwrite), byte for byte — no edits, no summary, markers excluded — with the Write tool (absolute path; if the file already exists, Read it first, Write refuses to overwrite an unread file). Then run \`wc -c < "${path}"\` as a separate command and return structured output: status "written" plus bytes (that number), or "blocked" + detail if the write failed.\n<<<BEGIN>>>\n${text}\n<<<END>>>`;
   const isIntact = (w) => w && w.status === "written" && (w.bytes === expectedBytes || w.bytes === expectedBytes + 1);
   const opts = { label: "persist", phase: "Implement", schema: WRITE_RESULT, model: MODELS.scribe };
   let written = await agent(prompt, opts);
