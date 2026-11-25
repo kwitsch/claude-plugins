@@ -45,7 +45,7 @@ frontmatter model.
 | `REPO_PATH`           | string  | no       | `''` (default). Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`**                                                  |
 | `JEV_AVAILABLE`       | boolean | no       | `false` (default). `true` ⇒ the ci-monitor and ci-fixer get a hint to use jev-api's `request` tool (a `choice` question); they accept its answer only at `confidence >= 0.6` |
 | `BASE_BRANCH`         | string  | no       | Branch the work branch was cut from. Default `main`. PR/MR target                                                                                                            |
-| `PLUGIN_ROOT`         | string  | no       | Default `''`. Absolute plugin root; builds the `bin/ship-ensure-mergeable.sh` path handed to the shipper. Empty or an unresolved `${…}` token → remediation skipped          |
+| `PLUGIN_ROOT`         | string  | no       | Default `''`. Absolute plugin root; builds the `bin/ship-ensure-mergeable.mjs` path handed to the shipper. Empty or an unresolved `${…}` token → remediation skipped          |
 
 Guards: missing required keys, or a `SPEC_PATH`, `PLAN_PATH`,
 `IMPLEMENT_PATH`, `REVIEW_PATH`, or `PR_BODY_PATH` that is not an
@@ -84,7 +84,7 @@ committed either way.
   escalated findings listed as open items, lean-review findings report-only);
   the body goes to `PR_BODY_PATH` through Bash redirection.
 - `shipper` (`haiku`) pushes (NEVER force), creates-or-updates the PR/MR
-  idempotently, then runs `bin/ship-ensure-mergeable.sh` to ensure it is
+  idempotently, then runs `bin/ship-ensure-mergeable.mjs` to ensure it is
   mergeable before ci-monitor runs (auto-updates a `behind` branch via the
   platform API; auto-resolves conflicts with a `git merge -X ours`, non-force,
   bailing to `blocked` on conflicts `-X ours` cannot cleanly resolve),

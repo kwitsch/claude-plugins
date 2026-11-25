@@ -68,7 +68,7 @@ Plugin root: ${CLAUDE_PLUGIN_ROOT}
 Capture the `Plugin root:` value above and pass it to the ship script
 as `PLUGIN_ROOT` (step 4.4) — agents cannot read `$CLAUDE_PLUGIN_ROOT` inside a
 Bash-tool subprocess, so the script builds the absolute
-`bin/ship-ensure-mergeable.sh` path from it and hands it to shipper. This is
+`bin/ship-ensure-mergeable.mjs` path from it and hands it to shipper. This is
 a plain **pre-injection text substitution** (the same mechanism as
 `${CLAUDE_SKILL_DIR}`, per `.claude/rules/script-authoring.md`) — resolved
 before this skill body is even sent to you, no shell command runs. **Do NOT

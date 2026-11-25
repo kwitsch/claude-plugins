@@ -82,7 +82,7 @@ taskflow/
 │   ├── worktree-merger.md  ├── pr-author.md        ├── shipper.md
 │   └── ci-monitor.md       └── ci-fixer.md
 ├── bin/                                   # on PATH when the plugin is enabled
-│   └── ship-ensure-mergeable.sh           # Ship-phase PR/MR merge-state remediation
+│   └── ship-ensure-mergeable.mjs           # Ship-phase PR/MR merge-state remediation
 └── skills/
     ├── build-task/
     │   ├── SKILL.md                       # orchestrator

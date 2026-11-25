@@ -24,7 +24,7 @@
 //   BRANCH_NAME    — current work branch (`git branch --show-current`)
 //   BASE_BRANCH    — branch the work branch was cut from (default 'main')
 //   PLUGIN_ROOT    — absolute plugin root (build-task passes its substituted
-//                    plugin root); used to build the ship-ensure-mergeable.sh
+//                    plugin root); used to build the ship-ensure-mergeable.mjs
 //                    path handed to shipper. Absent → shipper skips
 //                    remediation and reports mergeState 'unknown'.
 //
@@ -254,7 +254,7 @@ if (!prText) {
       + prText.bodyPath
       + "\n"
       + "Mergeability script (absolute path): "
-      + (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.sh" : "(none — skip the mergeability step and report mergeState 'unknown')")
+      + (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.mjs" : "(none — skip the mergeability step and report mergeState 'unknown')")
       + "\n"
       + "Structured output only.",
     { label: "ship", phase: "Ship", schema: SHIP_RESULT, model: MODELS.shipper, agentType: "taskflow:shipper" },
