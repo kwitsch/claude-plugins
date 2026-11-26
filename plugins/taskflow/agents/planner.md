@@ -2,6 +2,7 @@
 name: planner
 description: INTERNAL ONLY
 model: opus
+tools: ["Read", "Write", "Grep", "Glob", "ToolSearch", "mcp__graphmind__gm_search", "mcp__graphmind__gm_outline", "mcp__graphmind__gm_fn", "mcp__graphmind__gm_deps", "mcp__jev-api__request"]
 ---
 
 # planner

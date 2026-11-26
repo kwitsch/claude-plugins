@@ -12,8 +12,8 @@ allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "As
 
 # build-task
 
-Runs the feature-development pipeline (Design → Intent confirmation → Plan →
-Implement → Review → Ship) for `$task_description`, with the heavy phases
+Runs the feature-development pipeline (Design → Intent confirmation → Spec →
+Plan → Implement → Review → Ship) for `$task_description`, with the heavy phases
 executed by Workflow scripts. All seven are single-purpose scripts shipped in
 the plugin's root `workflows/` directory and run by name as
 `taskflow:build-task-<name>`: the design pipeline — explore, design, spec — and the
@@ -66,7 +66,7 @@ a redundant check.
 Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
 Capture the `Plugin root:` value above and pass it to the ship script
-as `PLUGIN_ROOT` (step 4.4) — agents cannot read `$CLAUDE_PLUGIN_ROOT` inside a
+as `PLUGIN_ROOT` (step 5.4) — agents cannot read `$CLAUDE_PLUGIN_ROOT` inside a
 Bash-tool subprocess, so the script builds the absolute
 `bin/ship-ensure-mergeable.mjs` path from it and hands it to shipper. This is
 a plain **pre-injection text substitution** (the same mechanism as
@@ -195,12 +195,12 @@ Every pipeline file is session-only, never a repository file:
    Otherwise — including when resumed inside an existing worktree that
    already has an open PR/MR for its branch — stay on the current branch, do
    not cut a new one and do not switch elsewhere; the pipeline (and Ship's
-   create-or-update, step 4) continues on it and updates that PR/MR. Either
+   create-or-update, step 5) continues on it and updates that PR/MR. Either
    way — after the switch when (b) ran — capture `BRANCH_NAME` =
    `git branch --show-current` and `REPO_PATH` =
    `git rev-parse --show-toplevel` (absolute repo root) — also on the
    `--skip-branch-check` path (`dispatch-task` always passes it): the explore
-   script and the plan script (steps 2 and 4) fail loud with
+   script and the plan script (steps 2 and 5) fail loud with
    `stage:'args'` on an empty `REPO_PATH` whenever graphmind is available.
 2. **Design.** Four sub-steps; paths come from the temp directory above.
    1. **Graphmind probe.** Probe once whether graphmind is usable for this
@@ -210,7 +210,7 @@ Every pipeline file is session-only, never a repository file:
       the checkout is not registered). Both ⇒ `GRAPHMIND_AVAILABLE = true`; no
       schema, `graphmind` not found, or exit 1 ⇒ `false`. Compute this once
       per `build-task` invocation and reuse the same value for the explore,
-      design and step 4 calls (a value held in this running skill — never written to
+      design and step 5 calls (a value held in this running skill — never written to
       a file; no cross-run caching).
    2. **Explore.** Run the explore script (invocation rules above) with args
       `{TASK: $task_description, EXPLORE_PATH, GRAPHMIND_AVAILABLE, REPO_PATH}`
@@ -252,11 +252,6 @@ Every pipeline file is session-only, never a repository file:
         new genuine questions after a resume are expected, not a failure.
       - `error` → surface `stage`, `error`, and `draftPath`, then stop.
       - `complete` → keep `keypoints` and the design `minorFindings`.
-   5. **Spec.** Run the spec script with args `{DRAFT_PATH, SPEC_PATH}`.
-      `error` → surface `stage`, `error`, and `draftPath`, then stop.
-      `complete` with `specReviewed: false` → note it for the final report
-      (step 5): the spec shipped without its completeness/ambiguity gate
-      because the reviewer failed twice. Keep the spec `minorFindings`.
 3. **Intent confirmation.** Read nothing aloud from memory: output the
    `keypoints` from the last design return verbatim as your own plain-text
    message (the user has never seen the temp files), then `AskUserQuestion`:
@@ -267,11 +262,18 @@ Every pipeline file is session-only, never a repository file:
    re-run step 2.4 (design script) with `RESUME: true`, `USER_INPUT` = the
    corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`,
    `GRAPHMIND_AVAILABLE` and `REPO_PATH` (the script records the corrections as binding USER DECISIONs and
-   rewrites the draft; handle its return as in step 2.4), then step 2.5 (spec
-   script), then re-ask this step from the new keypoints. Explore and Size are
-   not re-run. Only after "Yes" does the spec count as **approved** — this is
-   the pipeline's one human checkpoint on the design.
-4. **Deliver.** Four sub-steps, each: read the reference, run the script
+   rewrites the draft; handle its return as in step 2.4), then re-ask this
+   step from the new keypoints. Explore and Size are not re-run. Only after
+   "Yes" is the design **approved** — this is the pipeline's one human
+   checkpoint on the design; the spec (step 4) is written from the approved
+   draft.
+4. **Spec.** Runs once, after the "Yes" of step 3. Run the spec script with
+   args `{DRAFT_PATH, SPEC_PATH}`.
+   `error` → surface `stage`, `error`, and `draftPath`, then stop.
+   `complete` with `specReviewed: false` → note it for the final report
+   (step 6): the spec shipped without its completeness/ambiguity gate
+   because the reviewer failed twice. Keep the spec `minorFindings`.
+5. **Deliver.** Four sub-steps, each: read the reference, run the script
    (invocation rules above), branch on `status`. Paths come from the temp
    directory above.
    1. **Plan.** Run the plan script with args
@@ -292,7 +294,7 @@ Every pipeline file is session-only, never a repository file:
       `escalatedToUser` and `ponytailReview`.
    4. **Ship.** Skip this sub-step when the user asked not to open a PR/MR
       (`$task_description` or a later message says so) — there is no ship arg
-      for it; step 5 then reports "PR/MR skipped at the user's request".
+      for it; step 6 then reports "PR/MR skipped at the user's request".
       Otherwise run the ship script with args
       `{SPEC_PATH, PLAN_PATH, IMPLEMENT_PATH, REVIEW_PATH, PR_BODY_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`.
       It pushes, creates or updates the PR/MR and watches CI with bounded fix
@@ -300,14 +302,14 @@ Every pipeline file is session-only, never a repository file:
       are reportable `ship.status` values, not errors.
 
    The one error rule for all four sub-steps: **a Review error that carries
-   `applied`/`escalatedToUser` → run step 5 (escalations + report) and skip
+   `applied`/`escalatedToUser` → run step 6 (escalations + report) and skip
    Ship; any other `status: "error"` (any stage) → surface `stage`, `error`
    and the returned `tasks`/`results`, then stop.** Stop means stop: a failed
    task or wave-merge conflict is a hard stop — never retry the merge, never
    resolve a conflict, and never continue on a half-implemented plan (the
    implement return's `results` are the per-task `taskResults` and name any
    abandoned worktrees/branches or left-behind commits for manual cleanup).
-5. **Escalations & report.** Terminal step.
+6. **Escalations & report.** Terminal step.
    1. For each `escalatedToUser` finding of the review return (review fixes
       the script refused to auto-apply because they would reverse an
       approved-spec decision): group related findings into one

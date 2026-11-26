@@ -85,7 +85,7 @@ One structured object; `status` is the discriminator. Consume only this return.
 
 - `LEVEL: 'max'` runs 5 correctness angles + 5 cleanup lenses + a gap sweep,
   cap 15 findings; `high` runs 3 correctness angles + 5 cleanup lenses, cap 10.
-  The size → level mapping is build-task's job (step 4); the script takes the
+  The size → level mapping is build-task's job (step 5); the script takes the
   level as given.
 - Models: finder, verifier, fix applier and lean review on the `sonnet`
   alias; synthesizer on `opus`; scope and scribe on `haiku`.

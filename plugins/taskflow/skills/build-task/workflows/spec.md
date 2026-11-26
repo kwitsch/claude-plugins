@@ -55,7 +55,6 @@ One structured object; `status` is the discriminator. Consume only this return.
 - The spec is written ENTIRELY in English regardless of the draft's language,
   carries every draft decision and the draft's lean/YAGNI decisions forward,
   and adds nothing new.
-- After an intent correction, build-task re-runs the design script and then
-  this script; the spec is rewritten in place at the same `SPEC_PATH`.
+- build-task runs this script once, after the user confirmed the design intent (SKILL.md step 4); intent corrections re-run only the design script.
 - The draft is left in place — context for the delivery scripts.
 - Models: spec writer and spec reviewer on the `sonnet` alias.

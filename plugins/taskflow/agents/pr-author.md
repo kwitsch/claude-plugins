@@ -2,6 +2,7 @@
 name: pr-author
 description: INTERNAL ONLY
 model: haiku
+tools: ["Read", "Write", "Grep", "Glob", "Bash"]
 ---
 
 # pr-author

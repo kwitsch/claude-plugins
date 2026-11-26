@@ -148,7 +148,7 @@ Severity 'blocking' for anything that would mislead the downstream planner.
 Structured output only.`;
 
 async function writeSpec(revision, label) {
-  const opts = { label, phase: "Spec", schema: WRITE_RESULT, model: MODELS.specWriter };
+  const opts = { label, phase: "Spec", schema: WRITE_RESULT, model: MODELS.specWriter, agentType: "taskflow:spec-writer" };
   let w = await agent(specWriterPrompt(revision), opts);
   if (w === null) w = await agent(specWriterPrompt(revision), { ...opts, label: label + ":retry" });
   return w;
