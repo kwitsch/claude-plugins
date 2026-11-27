@@ -10,22 +10,28 @@ Silently runs each language's standard linter (read-only — never autofixes) on
 
 ## Skills
 
-| Skill            | What it does                                                                                                                                                                                                                |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `universal-lint` | User-invoked. Lints every file in a free-text selection ("all files in `src/`", "files changed in PR 123", or an explicit list) read-only, exactly as the Write/Edit hook would, and prints one aggregated findings report. |
+| Skill            | What it does                                                                                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `universal-lint` | User-invoked. Lints every file in a free-text selection ("all files in `src/`", "files changed in PR 123", or an explicit list) read-only, exactly as a Write/Edit would be linted, and prints one aggregated findings report. |
 
 ## What it does
 
-A background (`asyncRewake`) PostToolUse `Write|Edit` command hook (no MCP server — all hooks are plain command hooks sharing one script) runs the just-written file's standard linter, check-only, for every language in the table below. At session start (and when the working directory changes) the plugin asks Claude Code to watch the project's lintable git files (tracked and untracked, not ignored; nothing above 5000 files); when one of them changes outside Write/Edit — a formatter run from Bash, `git stash pop`, an external editor — it is linted the same way in the background, unless it is git-ignored, unchanged against git, or still exactly what Write/Edit just wrote. The linter runs when its CLI is on `PATH` — or, for `eslint`/`oxlint`/`markdownlint-cli2`/`markdownlint`/`stylelint`, from the project's own `node_modules/.bin` or via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI, no project-local bin and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project (real path, so symlinks pointing out count as outside), or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hooks never block or degrade the session, and they never modify the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook exits 2 with them on stderr, which wakes Claude so it can fix them itself.
+Each Write/Edit Claude makes is linted at once, check-only, with the file's standard linter: `shellcheck` (Shell), `checkstyle` (Java), `ktlint` (Kotlin), `eslint` or `oxlint` plus `tsc --noEmit` (JS/TS), `ruff check` (Python), `golangci-lint`/`go vet` (Go), `yamllint` (YAML), `markdownlint-cli2`/`markdownlint` (Markdown), `stylelint` (CSS/SCSS), `phpstan`/`psalm` (PHP) and `cargo clippy`/`cargo check` (Rust); `eslint`, `oxlint`, `markdownlint-cli2`, `markdownlint` and `stylelint` also run from the project's `node_modules/.bin`, else through `npx`. yamllint/markdownlint's max-line-length rule is skipped only when neither the project nor the user has a linter config of its own (details below). JSON is not covered (see below).
+
+Files changed outside Write/Edit are linted too: at session start (and when the working directory changes) the plugin asks Claude Code to watch the project's lintable git files (tracked and untracked, not ignored; nothing above 5000 files); when one of them changes — a formatter run from Bash, `git stash pop`, an external editor — it is linted the same way, unless it is git-ignored, unchanged against git, or still exactly what Write/Edit just wrote.
+
+An unavailable linter, any crash or misconfiguration, an unsupported extension, a file outside the working directory (real path, so symlinks pointing out count as outside), or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op**. The plugin never modifies a file (that is `universal-format`'s job) and never passes `--fix`/`--format`/`--write` to anything.
 
 Findings of a half-finished change are held back:
 
-- **Quiet time.** Findings are reported once Claude has made no Write/Edit for 20 seconds. If the same file is edited again before that, the earlier lint reports nothing; the lint of the newest edit checks the lines of all edits not yet reported and reports what is still wrong, once.
+- **Quiet time.** Findings are reported once Claude has stopped editing for 20 seconds, or at the end of the turn, whichever comes first. If the same file is edited again before that, the earlier lint reports nothing; the lint of the newest edit checks the lines of all edits not yet reported and reports what is still wrong, once.
 - **Subagents.** An edit made by a subagent (Agent tool, workflow agent) is not linted at once. When the subagent finishes, the files it edited are linted in their final state and the findings go to that subagent, which continues and fixes them. The main conversation is not woken for a subagent's edits.
-- **Turn end.** When Claude finishes its turn, files whose edits no report has covered yet are linted once more; findings keep the turn going so Claude fixes them.
-- **Headless runs** (`claude -p`): Claude Code does not background the hook there, so findings are reported at once, without the quiet time.
+- **Turn end.** When Claude finishes its turn, the reports not yet delivered and the files whose edits no report has covered yet are handed to Claude once, so it fixes them before it stops. A report that becomes ready while the session is idle wakes Claude.
+- **Headless runs** (`claude -p`): findings are reported at once, without the quiet time.
 
-These hooks are always active once the plugin is installed — there is no toggle. Per-language opt-out is simply not installing that linter.
+The plugin adds two internal tools the model can see (`file_edited`, `next_report`); a call without the plugin's session key is ignored.
+
+The plugin is always active once installed — there is no toggle. Per-language opt-out is simply not installing that linter.
 
 ## Supported linters
 
@@ -48,7 +54,7 @@ These hooks are always active once the plugin is installed — there is no toggl
 `PATH`, run from the project's own `node_modules/.bin` (the nearest one from the
 file's directory up to the project root), else via `npx` (all official npm packages;
 a package npx has already installed runs from npx's cache directly; once a day the
-hook goes through `npx` again so a new release is picked up);
+plugin goes through `npx` again so a new release is picked up);
 `yamllint` has no npm distribution and is `PATH`-only, and Rust's `cargo`/
 `cargo clippy` are rustup-only and likewise `PATH`-only (no npx fallback).
 
@@ -69,7 +75,7 @@ characters by default. When neither the project nor your user-level linter
 config sets it (no `.yamllint*`/`.markdownlint*` in the project; for yamllint
 also no `$YAMLLINT_CONFIG_FILE` / `~/.config/yamllint/config`; for classic
 markdownlint also no `~/.markdownlintrc`, `~/.config/markdownlint*` or
-`/etc/markdownlint*`), this hook disables just that one rule so it doesn't
+`/etc/markdownlint*`), the plugin disables just that one rule so it doesn't
 flag ordinary long lines nobody opted into limiting — every other check still
 runs normally. A project or user config is never touched; its line-length
 choice always wins.
