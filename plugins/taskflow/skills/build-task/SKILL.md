@@ -2,22 +2,23 @@
 name: build-task
 description: >-
   End-to-end pipeline for a described task: design (explore, draft, review,
-  spec) and delivery (plan, wave-parallel implementation, combined review,
-  fix application, ship), all executed by prebuilt Workflow scripts shipped with this skill. Human
+  spec) and delivery (plan, wave-parallel implementation, review (simplify +
+  code-review), ship), all executed by prebuilt Workflow scripts shipped with this skill. Human
   checkpoints: open design questions and spec approval, via AskUserQuestion.
 argument-hint: "[--skip-branch-check] [task-description]"
 arguments: task_description
-allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "AskUserQuestion", "ToolSearch", "EnterWorktree"]
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "AskUserQuestion", "ToolSearch", "EnterWorktree", "Skill"]
 ---
 
 # build-task
 
 Runs the feature-development pipeline (Design → Intent confirmation → Spec →
 Plan → Implement → Review → Ship) for `$task_description`, with the heavy phases
-executed by Workflow scripts. All seven are single-purpose scripts shipped in
+executed by Workflow scripts. All six are single-purpose scripts shipped in
 the plugin's root `workflows/` directory and run by name as
 `taskflow:build-task-<name>`: the design pipeline — explore, design, spec — and the
-delivery pipeline — plan, implement, review, ship. One usage reference per
+delivery pipeline — plan, implement, ship. Review is not a script: step 5.3
+runs the `taskflow:review-task` skill. One usage reference per
 script — parameters, exit contract, behavior — lives beside it; read the
 relevant one BEFORE each invocation:
 
@@ -34,9 +35,6 @@ relevant one BEFORE each invocation:
 - [workflows/implement.md](workflows/implement.md) — wave-parallel Implement
   (worktree/merge rules per wave size are in the reference). Exits `complete`
   (result file + per-task results) or `error` (hard stop).
-- [workflows/review.md](workflows/review.md) — combined Review → fix
-  application. Findings that would reverse an approved-spec decision come
-  back unapplied as `escalatedToUser`.
 - [workflows/ship.md](workflows/ship.md) — push, PR/MR create-or-update, CI
   watch with bounded fix rounds. Returns a `ship` object; ship problems are
   reportable states, not errors.
@@ -85,7 +83,7 @@ skips remediation (the pre-fix loop still runs).
 
 The scripts live in the plugin root `workflows/` directory as
 `build-task-explore`, `build-task-design`, `build-task-spec`,
-`build-task-plan`, `build-task-implement`, `build-task-review` and
+`build-task-plan`, `build-task-implement` and
 `build-task-ship` (`.workflow.js`); their role agents (`taskflow:designer`,
 `taskflow:planner`, …) live in the plugin's `agents/` and are dispatched by
 the scripts via `agentType` — no skill directory is threaded through.
@@ -114,7 +112,8 @@ Every pipeline file is session-only, never a repository file:
   `$task_description`'s language (every agent's final-message rule plus the
   designer/spec-writer/planner rules) — they are read only by other agents
   in the pipeline, never shown to the user directly; `pr-body-<slug>.md`
-  follows the repo's documentation language because it is human-facing. The skill never Reads these files; it
+  follows the repo's documentation language because it is human-facing. The skill never Reads these files,
+  except `REVIEW_PATH`, which the skill writes itself in step 5.3; it
   passes their absolute paths to the workflows and uses only the structured
   returns. `SCRATCH_DIR` is this directory itself (absolute, trailing slash
   included) — passed to the implement script only.
@@ -133,7 +132,7 @@ Every pipeline file is session-only, never a repository file:
    only loads a `scriptPath` it can itself read (working directory or an
    added directory), and the plugin cache is neither — the call is rejected.
    `Workflow({name: "taskflow:build-task-<name>", args})` with `<name>` =
-   `explore`, `design`, `spec`, `plan`, `implement`, `review` or `ship` (no
+   `explore`, `design`, `spec`, `plan`, `implement` or `ship` (no
    leading `/`), and ONE structured `args` object — the script reads it as
    the `args` global; keys and return contract are in the per-script
    reference files linked above. Structured data, so task text and user
@@ -149,11 +148,7 @@ Every pipeline file is session-only, never a repository file:
    global arrives `undefined` there. Once the undefined-args fallback
    triggered, use it for every later script call in this invocation. Any
    other `stage: 'args'` error means a genuinely malformed payload — fix the
-   call, never switch to the fallback for it. Note: the review script
-   dispatches the plugin agents `taskflow:review-finder`,
-   `taskflow:review-verifier` and `taskflow:fix-applier`, so this plugin must
-   be loaded on both invocation paths — an unknown agent type throws hard at
-   dispatch.
+   call, never switch to the fallback for it.
 4. **Consume only the structured return.** Never re-derive workflow state
    from transcript output; the return object is the contract. A return with
    `stage: 'args'` means the invocation itself was malformed — fix the call
@@ -267,9 +262,9 @@ Every pipeline file is session-only, never a repository file:
    `complete` with `specReviewed: false` → note it for the final report
    (step 6): the spec shipped without its completeness/ambiguity gate
    because the reviewer failed twice. Keep the spec `minorFindings`.
-5. **Deliver.** Four sub-steps, each: read the reference, run the script
-   (invocation rules above), branch on `status`. Paths come from the temp
-   directory above.
+5. **Deliver.** Four sub-steps. Plan, Implement and Ship: read the reference,
+   run the script (invocation rules above), branch on `status`. Review runs
+   the `taskflow:review-task` skill. Paths come from the temp directory above.
    1. **Plan.** Run the plan script with args
       `{SPEC_PATH, PLAN_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`
       (`SIZE` and `JEV_AVAILABLE` from step 2.3, the graphmind flag from step 2.1). `complete` →
@@ -280,12 +275,25 @@ Every pipeline file is session-only, never a repository file:
       above, trailing slash included — implementers write their test-evidence
       files there for the per-task reviewer). `complete` → keep `tasks`,
       `waves` and the implement `minorFindings`.
-   3. **Review.** Derive `LEVEL` from the step-2.3 `SIZE` (no further jev-api
-      call): `S` or `M` → `high`, `L` or `XL` → `max`; print one line
-      `Review level: <level> (size <X>)`. Run the review script with args
-      `{SPEC_PATH, PLAN_PATH, REVIEW_PATH, BRANCH_NAME, BASE_BRANCH, LEVEL, GRAPHMIND_AVAILABLE, REPO_PATH}`.
-      `complete` → keep `level`, `summary`, `findingCount`, `applied`,
-      `escalatedToUser` and `ponytailReview`.
+   3. **Review.** Invoke
+      `Skill(skill: "taskflow:review-task", args: "--size=<SIZE> <BASE_BRANCH>")`
+      with the step-2.3 `SIZE`, follow it to its report, then continue here.
+      review-task commits pending changes, runs `simplify` and
+      `code-review <level> --fix` over `<BASE_BRANCH>...HEAD`, commits each
+      pass's edits and prints `Size:` and the line
+      `Review level: <level> (size <X>)` (it owns the size → level table).
+      review-task stopped on an error (branch guard, commit failure), or its
+      report lists `simplify` or `code-review` as unavailable or failed →
+      surface its message and stop (no Ship). Then check every commit
+      review-task made (`git show <hash>`) against the approved spec: a fix
+      that reverses a spec decision → one `AskUserQuestion` (keep / revert
+      with `git revert`); never leave it unasked. Otherwise Write `REVIEW_PATH`
+      (English) with the Write tool:
+      `{"size": "<SIZE>", "level": "<level>", "commits": ["<hash> <subject>", ...], "summary": "<simplify and code-review summary from the report, incl. found-but-not-fixed items>"}`
+      — `commits` from the report's `git log --oneline` list. When
+      review-task stopped with "no changes to review", write
+      `"level": "none"`, `"commits": []` and that sentence as `summary`.
+      Keep the `Review level:` line, the commits and the summary for step 6.
    4. **Ship.** Skip this sub-step when the user asked not to open a PR/MR
       (`$task_description` or a later message says so) — there is no ship arg
       for it; step 6 then reports "PR/MR skipped at the user's request".
@@ -295,34 +303,20 @@ Every pipeline file is session-only, never a repository file:
       rounds; keep the returned `ship` object (url, CI outcome). Ship problems
       are reportable `ship.status` values, not errors.
 
-   The one error rule for all four sub-steps: **a Review error that carries
-   `applied`/`escalatedToUser` → run step 6 (escalations + report) and skip
-   Ship; any other `status: "error"` (any stage) → surface `stage`, `error`
-   and the returned `tasks`/`results`, then stop.** Stop means stop: a failed
+   The one error rule for the script sub-steps (Plan, Implement, Ship): **any
+   `status: "error"` (any stage) → surface `stage`, `error` and the returned
+   `tasks`/`results`, then stop.** Stop means stop: a failed
    task or wave-merge conflict is a hard stop — never retry the merge, never
    resolve a conflict, and never continue on a half-implemented plan (the
    implement return's `results` are the per-task `taskResults` and name any
    abandoned worktrees/branches or left-behind commits for manual cleanup).
-6. **Escalations & report.** Terminal step.
-   1. For each `escalatedToUser` finding of the review return (review fixes
-      the script refused to auto-apply because they would reverse an
-      approved-spec decision): group related findings into one
-      `AskUserQuestion` (apply / skip). Apply the accepted ones yourself
-      (Read → Edit; locate by content — line numbers are advisory), commit
-      them as one commit per repo conventions (no co-author trailers), then —
-      when Ship ran — `git push`: the PR/MR the ship script opened updates
-      automatically. Never silently apply a decision-reversing fix.
-   2. Report one short summary: the `Size:` line, the planner model
-      (`plannerModel` from the plan return), wave layout and per-task results
-      (id, model, status — `waves` and `tasks` from the implement return),
-      the `Review level:` line + findings applied / skipped / escalated
-      (`level`, `applied`, `escalatedToUser` from the review return), the
-      lean-review (`ponytailReview`) over-engineering findings (report-only,
-      not applied), the collected minor findings (the implement return's
-      `minorFindings`, design — from the last design return — and spec — from
-      the last spec return), the commit hashes from `applied.commits` plus
-      any escalation commit, and the `ship` outcome from the ship return
-      (PR/MR url, CI status; on `ci_failed`/`blocked` state plainly what the
-      human must pick up) — or "PR/MR skipped at the user's request", or,
-      when the review result file could not be written, that Ship was skipped
-      for that reason. Merging the PR/MR is not this skill's job.
+6. **Report.** Terminal step. Report one short summary: the `Size:` line, the
+   planner model (`plannerModel` from the plan return), wave layout and
+   per-task results (id, model, status — `waves` and `tasks` from the
+   implement return), the `Review level:` line, the review commits and the
+   review summary (step 5.3), the collected minor findings (the implement
+   return's `minorFindings`, design — from the last design return — and
+   spec — from the last spec return), and the `ship` outcome from the ship
+   return (PR/MR url, CI status; on `ci_failed`/`blocked` state plainly what
+   the human must pick up) — or "PR/MR skipped at the user's request".
+   Merging the PR/MR is not this skill's job.

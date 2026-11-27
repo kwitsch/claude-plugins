@@ -98,7 +98,7 @@ result file could not be written, all tasks are committed on `BRANCH_NAME`.
   commits on the work branch for manual revert.
 - The per-task review gate runs on the `haiku` alias for `trivial` and
   `standard` tasks and on the `sonnet` alias for `complex` tasks; depth comes
-  from the review script, never from the per-task gate. The implementer runs
+  from the review-task step, never from the per-task gate. The implementer runs
   on `haiku` (`opus` for `complex` tasks); the per-task fixer reuses the
   implementer's model. Loader, merger and scribe run on `haiku`.
 - The result file is written by a `haiku` scribe with the Write tool (one retry,

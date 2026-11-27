@@ -1,7 +1,7 @@
 {
   "name": "taskflow",
-  "version": "2.4.0",
-  "description": "Spec-driven design & delivery pipeline: /taskflow:build-task runs the design pipeline (explore, design, spec) and the delivery pipeline (plan, wave-parallel implement, combined review, ship); /taskflow:changes-audit reviews a branch standalone.",
+  "version": "3.0.0",
+  "description": "Runs a spec-driven design and delivery pipeline for a task (/taskflow:build-task) and reviews and fixes a branch's changes (/taskflow:review-task).",
   "author": {
     "name": "Kwitsch"
   }

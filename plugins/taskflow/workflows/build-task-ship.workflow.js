@@ -177,7 +177,7 @@ const RESULT_FILES = "Pipeline result files (faithful source of truth — Read b
   + IMPLEMENT_PATH
   + " (tasks, waves, per-task minor findings), review result "
   + REVIEW_PATH
-  + " (level, summary, applied/skipped, escalated open items, fix commits, lean-review findings)";
+  + " (size, level, review commits, summary)";
 const CONTEXT_FILES = "Spec (context): " + SPEC_PATH + " — Plan (context): " + PLAN_PATH;
 // Fail closed: a missing or empty result file would silently drop open items from the PR/MR body.
 const filesCheck = await agent(
