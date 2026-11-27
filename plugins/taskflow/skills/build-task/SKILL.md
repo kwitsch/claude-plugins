@@ -219,26 +219,20 @@ Every pipeline file is session-only, never a repository file:
       once per invocation; resumes and corrections never re-run it.
    3. **Size** (once per invocation; reused on every resume and correction
       re-run). `ToolSearch(query: "select:mcp__jev-api__request")`. Schema
-      returned ⇒ `JEV_AVAILABLE = true` (tool availability only — independent
-      of whether the size answer below is accepted), otherwise `false`; hold it
-      like `GRAPHMIND_AVAILABLE`. Schema returned → call `mcp__jev-api__request` with `state` = the task text plus
-      one line per returned subsystem (`<name> — <focus>`) and
-      `questions` = one `score` question,
-      `{"type": "score", "instructions": "How large is the work?", "criteria": [...]}`,
-      with these four strings as `criteria`, in this order:
-      - `S: a few lines in one place`
-      - `M: one component`
-      - `L: several functionalities, modules or subprojects`
-      - `XL: cross-cutting or architectural`
-
-      Accept when the result parses as a JSON array whose first element has `type: "score"`, a numeric
-      `score` and `confidence >= 0.6`: `SIZE` = `["S","M","L","XL"][Math.round(score)]`
-      (index clamped to 0..3); print one line `Size: <X> (jev-api, confidence <c>)`.
-      Otherwise — no schema, a result string starting with `request:`,
-      unparsable, or lower confidence — decide `SIZE` yourself against the
-      same four criteria from the same inputs and print one line
-      `Size: <X> (own reasoning: <reason>)`. No retry loop; sizing never
-      fails the run. `SIZE` picks the designer model, the planner model and the review level.
+      returned ⇒ `JEV_AVAILABLE = true` (tool availability only), otherwise
+      `false`; hold it like `GRAPHMIND_AVAILABLE`. Then
+      `ToolSearch(query: "select:mcp__taskflow__size-task")` and call
+      `mcp__taskflow__size-task` with `task` = the task text and `subsystems` =
+      one string per returned subsystem (`<name> — <focus>`). The tool does the
+      whole sizing (jev-api's calibrated question, then a model call when that
+      is unsure); its result starts with the letter: `SIZE` = `S`, `M`, `L` or
+      `XL`; print one line `Size: <result>`. Tool missing or an error result:
+      decide `SIZE` yourself from the same inputs — `S` one single edit in one
+      place, `M` a feature or fix with tests inside one plugin, `L` several
+      distinct parts, a whole plugin or two to four plugins, `XL`
+      repository-wide — and print `Size: <X> (own reasoning: <reason>)`. No
+      retry loop; sizing never fails the run.
+      `SIZE` picks the designer model, the planner model and the review level.
    4. **Design.** Run the design script with args
       `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
       Then by `status`:
