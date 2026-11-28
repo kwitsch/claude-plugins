@@ -6,15 +6,20 @@
 // Transforms the decision-complete draft (DRAFT_PATH, written by
 // build-task-design.workflow.js) into the final spec at SPEC_PATH — the single input of
 // the delivery workflow. The spec writer and spec reviewer are inline agents
-// (they never had role files).
+// (they never had role files). Run by the spec-task skill, which resumes it
+// with USER_INPUT after a user decision.
 //
-// Args: { DRAFT_PATH, SPEC_PATH }
+// Args: { DRAFT_PATH, SPEC_PATH, USER_INPUT? }
 //   DRAFT_PATH — absolute path of the approved, decision-complete draft
 //   SPEC_PATH  — absolute target path of the spec (create/overwrite)
+//   USER_INPUT — optional, default ''; non-empty means resume: the JSON string
+//                {"decisions": [{id, question, answer}], "findings": [...]} with every
+//                decision so far, binding for writer and reviewer
 //
 // Exit contract:
-//   'complete' — { status, specPath, specReviewed, minorFindings: [] }
-//   'error'    — { status, stage: 'args' | 'Spec', error, draftPath? }
+//   'complete'            — { status, specPath, specReviewed, minorFindings: [] }
+//   'user_input_required' — { status, reason: 'conflict' | 'rounds_exhausted', findings, specPath, draftPath }
+//   'error'               — { status, stage: 'args' | 'Spec', error, draftPath? }
 //
 // Invocation contract:
 //   - PRIMARY: the plugin workflow `build-task-spec` (by name, namespaced by the plugin, args)
@@ -62,9 +67,11 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["DRAFT_PATH", "SPEC_PATH"], {});
+const A = decodeArgs(["DRAFT_PATH", "SPEC_PATH"], { USER_INPUT: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
 const { DRAFT_PATH, SPEC_PATH } = A;
+// A non-empty USER_INPUT is the resume signal; an object is accepted and re-serialized.
+const USER_INPUT = typeof A.USER_INPUT === "string" ? A.USER_INPUT : A.USER_INPUT == null ? "" : JSON.stringify(A.USER_INPUT);
 
 const MODELS = {
   specWriter: "sonnet", // 1:1 transformation, no new decisions
@@ -93,8 +100,9 @@ const SPEC_REVIEW = {
         type: "object",
         required: ["severity", "description"],
         properties: {
-          severity: { enum: ["blocking", "minor"] },
+          severity: { enum: ["blocking", "minor", "conflict"] },
           description: { type: "string" },
+          options: { type: "array", items: { type: "string" } },
         },
       },
     },
@@ -130,7 +138,7 @@ English regardless of the draft's language (translate faithfully if needed)
   (checkable, exact commands); Risks; '## Global Constraints' (verbatim from
   the draft — one line each, exact values); '## Decisions & assumptions'.
 - NO Open-questions section — a spec with open questions is invalid.
-${revision ? "\nThis is a FIX round. Address exactly these findings, then rewrite " + SPEC_PATH + " in place:\n" + revision + "\n" : ""}
+${revision ? "\nThis is a FIX round. Address exactly these findings and binding user decisions, then rewrite " + SPEC_PATH + " in place (a binding user decision overrides the draft and the carry-over rules above wherever they differ):\n" + revision + "\n" : ""}
 Return structured output: status (+ detail when blocked).`;
 
 const specReviewerPrompt = `${NO_NARRATION}
@@ -144,8 +152,12 @@ at ${SPEC_PATH} against the approved draft at ${DRAFT_PATH}:
 4. Ambiguity — every requirement has exactly one reading.
 5. Acceptance criteria — checkable, with exact commands where the draft had them.
 6. '## Global Constraints' present and matching the draft verbatim.
+7. Conflicts — requirements of the draft that cannot all hold, so the spec
+   would have to contain mutually exclusive points. Severity 'conflict';
+   'description' names the clashing requirements; 'options' lists 2-3
+   mutually exclusive resolutions, one short sentence each.
 Severity 'blocking' for anything that would mislead the downstream planner.
-Structured output only.`;
+${USER_INPUT ? "\nBinding user decisions (JSON below) override the input document where they differ. Never flag an output point that follows them, and never re-raise a conflict they resolve: " + USER_INPUT + "\n" : ""}Structured output only.`;
 
 async function writeSpec(revision, label) {
   const opts = { label, phase: "Spec", schema: WRITE_RESULT, model: MODELS.specWriter, agentType: "taskflow:spec-writer" };
@@ -161,16 +173,29 @@ async function reviewSpec(label) {
   return r;
 }
 
-let spec = await writeSpec(null, "spec-write");
+// Fix-round text: the findings, plus every binding decision on a resumed run.
+const withDecisions = (findings) => JSON.stringify(findings) + (USER_INPUT ? "\nBinding user decisions: " + USER_INPUT : "");
+const hasConflict = (check) => (check.findings || []).some((f) => f.severity === "conflict");
+// Conflicts skip the fix round: only a user decision resolves them.
+const conflictReturn = (check) => ({
+  status: "user_input_required",
+  reason: "conflict",
+  findings: (check.findings || []).filter((f) => f.severity === "conflict" || f.severity === "blocking"),
+  specPath: SPEC_PATH,
+  draftPath: DRAFT_PATH,
+});
+
+let spec = await writeSpec(USER_INPUT || null, "spec-write");
 if (!spec || spec.status === "blocked") {
   return { status: "error", stage: "Spec", error: spec ? spec.detail : "spec writer returned null twice", draftPath: DRAFT_PATH };
 }
 let specCheck = await reviewSpec("spec-review");
+if (specCheck && hasConflict(specCheck)) return conflictReturn(specCheck);
 if (specCheck && !specCheck.approved) {
   const specBlocking = specCheck.findings.filter((f) => f.severity === "blocking");
   if (specBlocking.length) {
     log("Spec review: " + specBlocking.length + " blocking finding(s) — one fix round");
-    spec = await writeSpec(JSON.stringify(specBlocking), "spec-fix");
+    spec = await writeSpec(withDecisions(specBlocking), "spec-fix");
     if (!spec || spec.status === "blocked") {
       return { status: "error", stage: "Spec", error: "spec writer failed during fix round", draftPath: DRAFT_PATH };
     }
@@ -179,12 +204,15 @@ if (specCheck && !specCheck.approved) {
     if (!specCheck) {
       return { status: "error", stage: "Spec", draftPath: DRAFT_PATH, error: "spec recheck reviewer returned null twice after a fix round for blocking findings" };
     }
+    if (hasConflict(specCheck)) return conflictReturn(specCheck);
     if (!specCheck.approved && specCheck.findings.some((f) => f.severity === "blocking")) {
+      log("Spec recheck: blocking findings remain after the fix round — asking the caller");
       return {
-        status: "error",
-        stage: "Spec",
+        status: "user_input_required",
+        reason: "rounds_exhausted",
+        findings: specCheck.findings.filter((f) => f.severity === "blocking"),
+        specPath: SPEC_PATH,
         draftPath: DRAFT_PATH,
-        error: "spec still blocking after one fix round: " + JSON.stringify(specCheck.findings.filter((f) => f.severity === "blocking")),
       };
     }
   }

@@ -4,7 +4,8 @@ description: >-
   End-to-end pipeline for a described task: design (explore, draft, review,
   spec) and delivery (plan, wave-parallel implementation, review (simplify +
   code-review), ship), all executed by prebuilt Workflow scripts shipped with this skill. Human
-  checkpoints: open design questions and the intent confirmation, via the
+  checkpoints: open design questions, the intent confirmation and, in the spec
+  and plan steps, conflicts and unresolved blocking findings, via the
   decide skill (AskUserQuestion, or with --headless the advisor or a decider agent).
 argument-hint: "[--skip-branch-check] [--headless] [task-description]"
 arguments: task_description
@@ -18,10 +19,13 @@ Plan → Implement → Review → Ship) for `$task_description`, with the heavy 
 executed by Workflow scripts. All six are single-purpose scripts shipped in
 the plugin's root `workflows/` directory and run by name as
 `taskflow:build-task-<name>`: the design pipeline — explore, design, spec — and the
-delivery pipeline — plan, implement, ship. Review is not a script: step 5.3
-runs the `taskflow:review-task` skill. One usage reference per
-script — parameters, exit contract, behavior — lives beside it; read the
-relevant one BEFORE each invocation:
+delivery pipeline — plan, implement, ship. This skill runs four of them
+directly (explore, design, implement, ship). Spec and Plan run through the
+`taskflow:spec-task` and `taskflow:plan-task` skills, which own the scripts
+`build-task-spec` / `build-task-plan` and their usage references. Review is
+not a script: step 5.3 runs the `taskflow:review-task` skill. One usage
+reference per directly run script — parameters, exit contract, behavior —
+lives beside it; read the relevant one BEFORE each invocation:
 
 - [workflows/explore.md](workflows/explore.md) — scout → read-only
   explorers → exploration reports written to `EXPLORE_PATH`. Exits `complete`
@@ -29,10 +33,12 @@ relevant one BEFORE each invocation:
 - [workflows/design.md](workflows/design.md) — Draft design → Design review
   → one revision round. Exits `complete` (draft decision-complete) or
   `user_input_required` (draft persisted + open user questions, resumable).
-- [workflows/spec.md](workflows/spec.md) — Write spec → Spec review → one
-  fix round. Exits `complete` (spec written) or `error`.
-- [workflows/plan.md](workflows/plan.md) — Plan → plan check → one revision
-  round. Exits `complete` (plan written to `PLAN_PATH`) or `error`.
+- [spec-task](../spec-task/SKILL.md) — step 4: approved draft → reviewed spec
+  via `build-task-spec`. Ends with a `RESULT:` line (`path`, `size`,
+  `reviewed`, `findings`) or a `spec-task:` stop line.
+- [plan-task](../plan-task/SKILL.md) — step 5.1: spec → checked plan via
+  `build-task-plan`. Ends with a `RESULT:` line (`path`, `size`, `model`,
+  `findings`) or a `plan-task:` stop line.
 - [workflows/implement.md](workflows/implement.md) — wave-parallel Implement
   (worktree/merge rules per wave size are in the reference). Exits `complete`
   (result file + per-task results) or `error` (hard stop).
@@ -68,7 +74,7 @@ a redundant check. `--headless` makes every decision without the user
 (decide with `--headless`: the advisor or the `taskflow:decider` agent
 answers) and the run never waits for input; where an interactive run would
 ask again, a headless run stops with a report (step 3, and the resume cap in
-step 2.4).
+step 2.4; spec-task and plan-task have the same rules for their own steps).
 
 ## Plugin context
 
@@ -97,7 +103,10 @@ The scripts live in the plugin root `workflows/` directory as
 `build-task-plan`, `build-task-implement` and
 `build-task-ship` (`.workflow.js`); their role agents (`taskflow:designer`,
 `taskflow:planner`, …) live in the plugin's `agents/` and are dispatched by
-the scripts via `agentType` — no skill directory is threaded through.
+the scripts via `agentType` — no skill directory is threaded through. This
+skill runs explore, design, implement and ship itself; `build-task-spec` and
+`build-task-plan` are run by the `spec-task` and `plan-task` skills (steps 4
+and 5.1).
 
 ## Session temp files
 
@@ -118,6 +127,9 @@ Every pipeline file is session-only, never a repository file:
   (`PLAN_PATH`), `implement-<slug>.json` (`IMPLEMENT_PATH`),
   `review-<slug>.json` (`REVIEW_PATH`), `pr-body-<slug>.md` (`PR_BODY_PATH`)
   — record and hand the workflows **absolute paths**, never inlined content.
+  `SPEC_PATH` and `PLAN_PATH` are the `path` fields of the spec-task and
+  plan-task `RESULT` lines (the same `spec-<slug>.md` / `plan-<slug>.md`
+  names, derived beside `DRAFT_PATH`).
   The pipeline files `explore-`/`draft-`/`spec-`/`plan-<slug>.md` and
   `implement-`/`review-<slug>.json` are always English, regardless of
   `$task_description`'s language (every agent's final-message rule plus the
@@ -143,8 +155,8 @@ Every pipeline file is session-only, never a repository file:
    only loads a `scriptPath` it can itself read (working directory or an
    added directory), and the plugin cache is neither — the call is rejected.
    `Workflow({name: "taskflow:build-task-<name>", args})` with `<name>` =
-   `explore`, `design`, `spec`, `plan`, `implement` or `ship` (no
-   leading `/`), and ONE structured `args` object — the script reads it as
+   `explore`, `design`, `implement` or `ship` (no leading `/`; spec and plan
+   run through their skills, steps 4 and 5.1), and ONE structured `args` object — the script reads it as
    the `args` global; keys and return contract are in the per-script
    reference files linked above. Structured data, so task text and user
    answers need no string escaping. The runtime may deliver the object
@@ -206,8 +218,8 @@ Every pipeline file is session-only, never a repository file:
    `git branch --show-current` and `REPO_PATH` =
    `git rev-parse --show-toplevel` (absolute repo root) — also on the
    `--skip-branch-check` path (`dispatch-task` always passes it): the explore
-   script and the plan script (steps 2 and 5) fail loud with
-   `stage:'args'` on an empty `REPO_PATH` whenever graphmind is available.
+   script (step 2) fails loud with `stage:'args'` on an empty `REPO_PATH`
+   whenever graphmind is available.
 2. **Design.** Four sub-steps; paths come from the temp directory above.
    1. **Graphmind probe.** Probe once whether graphmind is usable for this
       checkout: (a) `ToolSearch(query: "select:mcp__graphmind__gm_search")` —
@@ -239,6 +251,7 @@ Every pipeline file is session-only, never a repository file:
       repository-wide — and print `Size: <X> (own reasoning: <reason>)`. No
       retry loop; sizing never fails the run.
       `SIZE` picks the designer model, the planner model and the review level.
+      build-task passes it to spec-task, plan-task and review-task as `--size`.
    4. **Design.** Run the design script with args
       `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
       Then by `status`:
@@ -281,19 +294,27 @@ Every pipeline file is session-only, never a repository file:
    - Headless: stop and report
      "headless intent check rejected the design without corrections" with
      `draftPath` (no clarifying call in headless).
-4. **Spec.** Runs once, after the "Yes" of step 3. Run the spec script with
-   args `{DRAFT_PATH, SPEC_PATH}`.
-   `error` → surface `stage`, `error`, and `draftPath`, then stop.
-   `complete` with `specReviewed: false` → note it for the final report
-   (step 6): the spec shipped without its completeness/ambiguity gate
-   because the reviewer failed twice. Keep the spec `minorFindings`.
-5. **Deliver.** Four sub-steps. Plan, Implement and Ship: read the reference,
-   run the script (invocation rules above), branch on `status`. Review runs
-   the `taskflow:review-task` skill. Paths come from the temp directory above.
-   1. **Plan.** Run the plan script with args
-      `{SPEC_PATH, PLAN_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, JEV_AVAILABLE}`
-      (`SIZE` and `JEV_AVAILABLE` from step 2.3, the graphmind flag from step 2.1). `complete` →
-      keep `plannerModel`.
+4. **Spec.** Runs once, after the "Yes" of step 3. Invoke
+   `Skill(skill: "taskflow:spec-task", args: "--size=<SIZE> <DRAFT_PATH>")`
+   with the step-2.3 `SIZE`, with `--headless` prepended to `args` when this
+   run got `--headless`, and follow it to its last line.
+   - `RESULT: {…}` → `SPEC_PATH` = its `path`; keep its `findings` as the
+     spec findings. `"reviewed": false` → note it for the final report
+     (step 6): the spec shipped without its completeness/ambiguity gate because the reviewer failed twice.
+   - A last line starting `spec-task:`, or no `RESULT:` line → surface that
+     last line and `DRAFT_PATH`, then stop (nothing is committed yet).
+5. **Deliver.** Four sub-steps. Plan runs the `taskflow:plan-task` skill.
+   Implement and Ship: read the reference, run the script (invocation rules
+   above), branch on `status`. Review runs the `taskflow:review-task` skill.
+   Paths come from the temp directory above.
+   1. **Plan.** Invoke
+      `Skill(skill: "taskflow:plan-task", args: "--size=<SIZE> <SPEC_PATH>")`
+      with the step-2.3 `SIZE`, with `--headless` prepended to `args` when
+      this run got `--headless`, and follow it to its last line.
+      `RESULT: {…}` → `PLAN_PATH` = its `path`; keep its `model` as
+      `plannerModel` and its `findings` (accepted blocking findings, usually
+      empty) as the plan findings. A last line starting `plan-task:`, or no
+      `RESULT:` line → surface that last line, then stop.
    2. **Implement.** Run the implement script with args
       `{PLAN_PATH, IMPLEMENT_PATH, BRANCH_NAME, SCRATCH_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
       (`SCRATCH_DIR` is the session-temp directory from "Session temp files"
@@ -333,7 +354,7 @@ Every pipeline file is session-only, never a repository file:
       rounds; keep the returned `ship` object (url, CI outcome). Ship problems
       are reportable `ship.status` values, not errors.
 
-   The one error rule for the script sub-steps (Plan, Implement, Ship): **any
+   The one error rule for the script sub-steps (Implement, Ship; Plan follows 5.1's stop line): **any
    `status: "error"` (any stage) → surface `stage`, `error` and the returned
    `tasks`/`results`, then stop.** Stop means stop: a failed
    task or wave-merge conflict is a hard stop — never retry the merge, never
@@ -341,14 +362,16 @@ Every pipeline file is session-only, never a repository file:
    implement return's `results` are the per-task `taskResults` and name any
    abandoned worktrees/branches or left-behind commits for manual cleanup).
 6. **Report.** Terminal step. Report one short summary: the `Size:` line, the
-   planner model (`plannerModel` from the plan return), wave layout and
+   planner model (`plannerModel`, the `model` of plan-task's `RESULT` line), wave layout and
    per-task results (id, model, status — `waves` and `tasks` from the
    implement return), the `Review level:` line, the review commits and the
    review summary (step 5.3), the collected minor findings (the implement
    return's `minorFindings`, design — from the last design return — and
-   spec — from the last spec return), and the `ship` outcome from the ship
+   spec — the `findings` of spec-task's `RESULT` line), the plan findings
+   (the `findings` of plan-task's `RESULT` line: blocking findings the user
+   accepted), and the `ship` outcome from the ship
    return (PR/MR url, CI status; on `ci_failed`/`blocked` state plainly what
    the human must pick up) — or "PR/MR skipped at the user's request".
    With `--headless`, the report also lists every `Decided ...` line that
-   decide printed.
+   decide printed, including the decide calls inside spec-task and plan-task.
    Merging the PR/MR is not this skill's job.

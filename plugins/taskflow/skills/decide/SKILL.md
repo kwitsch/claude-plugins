@@ -1,15 +1,15 @@
 ---
 name: decide
 description: >-
-  Internal decision step of taskflow's build-task and review-task: shows the
-  given content and asks the user via AskUserQuestion, or with --headless lets
-  the advisor tool or the taskflow:decider agent decide. Invoked by those
-  skills with a JSON argument; not for direct use.
+  Internal decision step of taskflow's build-task, review-task, spec-task and plan-task:
+  shows the given content and asks the user via AskUserQuestion, or with
+  --headless lets the advisor tool or the taskflow:decider agent decide.
+  Invoked by those skills with a JSON argument; not for direct use.
 argument-hint: "[--headless] <JSON: {content, questions}>"
 allowed-tools: ["AskUserQuestion", "Agent"]
 ---
 
-# decide — one decision step for build-task and review-task
+# decide — one decision step for taskflow's skills
 
 Runs inline in the caller's conversation (never `context: fork`): the advisor
 must see the content, and the caller reads this skill's last line. It asks 1
