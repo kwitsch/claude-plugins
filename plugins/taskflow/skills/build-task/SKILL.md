@@ -277,25 +277,19 @@ Every pipeline file is session-only, never a repository file:
       files there for the per-task reviewer). `complete` → keep `tasks`,
       `waves` and the implement `minorFindings`.
    3. **Review.** Invoke
-      `Skill(skill: "taskflow:review-task", args: "--size=<SIZE> <BASE_BRANCH>")`
-      with step 2's `SIZE`, with `--headless` prepended to `args` when
+      `Skill(skill: "taskflow:review-task", args: "--size=<SIZE> --spec=<SPEC_PATH> <BASE_BRANCH>")`
+      with step 2's `SIZE` and step 3's spec path, with `--headless` prepended to `args` when
       this run got `--headless`; follow it to its report, then continue here.
-      review-task commits pending changes, runs `simplify` and
-      `code-review <level> --fix` over `<BASE_BRANCH>...HEAD`, commits each
-      pass's edits and prints `Size:` and the line
-      `Review level: <level> (size <X>)` (it owns the size → level table).
-      review-task stopped on an error (branch guard, commit failure), or its
-      report lists `simplify` or `code-review` as unavailable or failed →
-      surface its message and stop (no Ship). Then check every commit
-      review-task made (`git show <hash>`) against the approved spec: for
-      each fix that reverses a spec decision, one decide call with
-      `content` = [`<hash> <subject>`, the spec decision it reverses] and
-      `{"id": "reversal-<hash>", "question": "Keep this fix or revert it?", "options": ["Keep", "Revert with git revert"]}`;
-      never leave it unasked. "Revert with git revert" → run
-      `git revert --no-edit <hash>` (failure → stop and report) and list the
-      revert commit in `commits`; "Keep" → change nothing. Then Write `REVIEW_PATH`
+      review-task commits pending changes and runs its stage workflow over
+      `<BASE_BRANCH>...HEAD` (simplify, read-only review jobs, organize with a
+      spec check, fix with rereview), routes every fix that would contradict the spec through `decide` itself,
+      commits each stage's edits and prints `Size:`, the line
+      `Review level: <level> (size <X>)` (it owns the size → level table) and
+      an `Environment:` line. review-task stopped on an error (branch guard,
+      commit failure, a workflow error), or its report says the code-review
+      job failed → surface its message and stop (no Ship). Then Write `REVIEW_PATH`
       (English) with the Write tool:
-      `{"size": "<SIZE>", "level": "<level>", "commits": ["<hash> <subject>", ...], "summary": "<simplify and code-review summary from the report, incl. found-but-not-fixed items>"}`
+      `{"size": "<SIZE>", "level": "<level>", "commits": ["<hash> <subject>", ...], "summary": "<stage summary from the report, incl. unresolved findings and the spec decisions>"}`
       — `commits` from the report's `git log --oneline` list. When
       review-task stopped with "no changes to review", write
       `"level": "none"`, `"commits": []` and that sentence as `summary`.
