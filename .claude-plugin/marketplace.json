@@ -58,6 +58,11 @@
       "name": "graphmind-helper",
       "source": "./plugins/graphmind-helper",
       "category": "productivity"
+    },
+    {
+      "name": "statusbar",
+      "source": "./plugins/statusbar",
+      "category": "productivity"
     }
   ]
 }
