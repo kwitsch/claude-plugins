@@ -7,6 +7,7 @@
         "hooks": [
           {
             "type": "mcp_tool",
+            "statusMessage": "universal-format: formatting the file before it is written",
             "server": "plugin:universal-format:universal-format-hooks",
             "tool": "format_pre",
             "timeout": 60,
