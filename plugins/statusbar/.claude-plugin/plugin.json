@@ -1,0 +1,13 @@
+{
+  "name": "statusbar",
+  "version": "0.1.0",
+  "description": "Keeps the status line's folder, git branch, context use and 5-hour and 7-day quota current, refreshed every 10 seconds.",
+  "author": {
+    "name": "Kwitsch"
+  },
+  "keywords": [
+    "statusline",
+    "ui",
+    "mod"
+  ]
+}
