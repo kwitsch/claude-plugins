@@ -1,6 +1,6 @@
 {
   "name": "taskflow",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Runs a spec-driven design and delivery pipeline for a task (/taskflow:build-task) and reviews and fixes a branch's changes (/taskflow:review-task).",
   "author": {
     "name": "Kwitsch"

@@ -1,7 +1,7 @@
 ---
 name: decide
 description: >-
-  Internal decision step of taskflow's build-task, review-task, spec-task and plan-task:
+  Internal decision step of taskflow's build-task, design-task, review-task, spec-task and plan-task:
   shows the given content and asks the user via AskUserQuestion, or with
   --headless lets the advisor tool or the taskflow:decider agent decide.
   Invoked by those skills with a JSON argument; not for direct use.

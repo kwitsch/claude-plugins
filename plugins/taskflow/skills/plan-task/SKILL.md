@@ -17,7 +17,7 @@ implementation plan next to it. It runs the workflow script
 left after the correction round through `taskflow:decide`, accepts the plan
 at size `L`/`XL` and ends with one `RESULT:` line. Contract:
 `[--headless] [--size=S|M|L|XL] <absolute input path>`. build-task calls it as
-its step 5.1. This skill runs inline: it calls the Workflow and Skill tools
+its step 4.1. This skill runs inline: it calls the Workflow and Skill tools
 and must keep their results, so never run it as a forked context.
 
 ## Plugin context

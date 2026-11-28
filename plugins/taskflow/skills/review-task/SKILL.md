@@ -18,7 +18,7 @@ change of the current branch against its base, at a depth derived from the
 task size. Each pass's edits land as their own commit. This skill runs
 inline: it calls the `Skill` tool and must keep the results, so never run it
 as `context: fork`. It never pushes, opens a PR/MR or merges; `build-task`
-calls it as its Review step (step 5.3) and pushes in Ship.
+calls it as its Review step (step 4.3) and pushes in Ship.
 
 Run every git command with the Bash tool as an ordinary command. Commit
 messages carry no `Co-Authored-By:` trailer and no "Generated with" footer.

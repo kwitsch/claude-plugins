@@ -17,7 +17,7 @@ routes every conflict and every blocking finding left after the correction
 round through `taskflow:decide`, accepts the spec at size `L`/`XL` and ends
 with one `RESULT:` line. Contract:
 `[--headless] [--size=S|M|L|XL] <absolute input path>`. build-task calls it as
-its step 4. This skill runs inline: it calls the Workflow and Skill tools and
+its step 3. This skill runs inline: it calls the Workflow and Skill tools and
 must keep their results, so never run it as a forked context.
 
 ## Plugin context

@@ -71,6 +71,6 @@ decision so far plus the findings that triggered the resume.
 - Review severities: `blocking` (one fix round, then the recheck), `minor`
   (reported) and `conflict` (no fix round; returned at once as
   `user_input_required`).
-- spec-task runs this script; build-task calls spec-task once, after the user confirmed the design intent (build-task SKILL.md step 4); intent corrections re-run only the design script.
+- spec-task runs this script; build-task calls spec-task once, after design-task returned the approved design (build-task SKILL.md step 3); intent corrections go to the designer inside design-task.
 - The draft is left in place — context for the delivery scripts.
 - Models: spec writer and spec reviewer on the `sonnet` alias.
