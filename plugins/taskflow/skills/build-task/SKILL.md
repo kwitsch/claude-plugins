@@ -302,7 +302,7 @@ Every pipeline file is session-only, never a repository file:
       `waves` and the implement `minorFindings`.
    3. **Review.** Invoke
       `Skill(skill: "taskflow:review-task", args: "--size=<SIZE> <BASE_BRANCH>")`
-      with the step-2.3 `SIZE`, with `--headless ` prepended to `args` when
+      with the step-2.3 `SIZE`, with `--headless` prepended to `args` when
       this run got `--headless`; follow it to its report, then continue here.
       review-task commits pending changes, runs `simplify` and
       `code-review <level> --fix` over `<BASE_BRANCH>...HEAD`, commits each
