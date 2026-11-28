@@ -1,6 +1,6 @@
 {
   "name": "universal-lint",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Runs each language's standard linter, read-only, on the files Claude writes or that change in the project, and hands the findings to Claude to fix.",
   "author": {
     "name": "Kwitsch"
