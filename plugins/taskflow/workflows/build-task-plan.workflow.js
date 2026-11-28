@@ -18,7 +18,7 @@
 //   SPEC_PATH — absolute path of the user-approved spec file
 //   PLAN_PATH — absolute path the planner writes the plan to (session scratch)
 //   SIZE      — optional; S | M | L | XL from the size step; picks the
-//               planner model (PLAN_MODEL), default opus.
+//               planner model and effort (SIZE_MODEL), default M.
 //   GRAPHMIND_AVAILABLE — optional; true ⇒ the planner prompt tells it to confirm
 //               paths/signatures via the graphmind MCP tools. Requires a
 //               non-empty absolute REPO_PATH.
@@ -37,8 +37,9 @@
 //     `args` parameter.
 //   - No clock reads, randomness or FS in the script.
 //
-// Models: planner sonnet | opus | fable (from SIZE, default opus; fable falls
-// back to opus on a dispatch throw or a null result), plan checker sonnet.
+// Models: planner by the fixed size table (S sonnet/medium, M sonnet/high,
+// L opus/medium, XL opus/high; default M), plan checker on the planner's model
+// at effort medium.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const meta = {
@@ -93,11 +94,10 @@ if (wantGraphmind && !USE_GRAPHMIND) {
 const USE_JEV = A.JEV_AVAILABLE === true || A.JEV_AVAILABLE === "true";
 // A non-empty USER_INPUT is the resume signal; an object is accepted and re-serialized.
 const USER_INPUT = typeof A.USER_INPUT === "string" ? A.USER_INPUT : A.USER_INPUT == null ? "" : JSON.stringify(A.USER_INPUT);
-const MODELS = { planChecker: "sonnet" }; // coverage/consistency gate before Implement
-// Planner model is chosen per run from the SIZE arg (S/M/L/XL).
-const PLAN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };
-const plannerModel = (s) => PLAN_MODEL[String(s).toUpperCase()] || "opus";
-let PLANNER_MODEL = plannerModel(SIZE);
+// Planner model and effort come from the SIZE arg (S/M/L/XL); the plan checker (coverage/consistency gate before Implement) reuses the model at effort medium.
+const SIZE_MODEL = { S: { model: "sonnet", effort: "medium" }, M: { model: "sonnet", effort: "high" }, L: { model: "opus", effort: "medium" }, XL: { model: "opus", effort: "high" } };
+const PLANNER = SIZE_MODEL[String(SIZE).toUpperCase()] || SIZE_MODEL.M;
+const PLANNER_MODEL = PLANNER.model;
 
 // Prepended to every prompt below: these agents run headless inside a
 // Workflow, so any prose between tool calls is wasted tokens no one reads.
@@ -150,7 +150,7 @@ const CHECK_VERDICT = {
 // PLAN  (spec → plan file + machine-readable tasks)
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Plan");
-log("Size " + (SIZE || "unset") + " → planner: " + PLANNER_MODEL);
+log("Size " + (SIZE || "unset") + " → planner: " + PLANNER.model + "/" + PLANNER.effort);
 
 const plannerPrompt = (revision) =>
   `Spec to plan: ${SPEC_PATH}
@@ -205,19 +205,8 @@ Severity 'blocking' for anything that would mislead an implementer or corrupt
 wave scheduling; 'minor' otherwise.
 ${USER_INPUT ? "\nBinding user decisions (JSON below) override the input document where they differ. Never flag an output point that follows them, and never re-raise a conflict they resolve: " + USER_INPUT + "\n" : ""}Structured output only.`;
 
-// PLANNER_MODEL can be downgraded permanently for the rest of this run: an
-// account/session without Fable access throws on dispatch rather than
-// returning null, so an XL task must not be stuck retrying 'fable'.
-async function callPlanner(prompt, label) {
-  const opts = () => ({ label, phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: "taskflow:planner" });
-  try {
-    return await agent(prompt, opts());
-  } catch (e) {
-    if (PLANNER_MODEL !== "fable") throw e;
-    log("planner dispatch on fable failed (" + e.message + ") — falling back to opus for the rest of this run");
-    PLANNER_MODEL = "opus";
-    return await agent(prompt, { ...opts(), label: label + ":fable-fallback" });
-  }
+function callPlanner(prompt, label) {
+  return agent(prompt, { label, phase: "Plan", schema: PLAN_RESULT, model: PLANNER.model, effort: PLANNER.effort, agentType: "taskflow:planner" });
 }
 
 // Revision text: the findings, plus every binding decision on a resumed run.
@@ -228,16 +217,10 @@ const blockingFindings = (check) => (check.findings || []).filter((f) => f.sever
 
 async function makePlan() {
   let plan = await callPlanner(plannerPrompt(USER_INPUT || null), "plan");
-  if (plan === null) {
-    if (PLANNER_MODEL === "fable") {
-      log("planner on fable returned null (usage limit?) — retrying on opus");
-      PLANNER_MODEL = "opus";
-    }
-    plan = await callPlanner(plannerPrompt(USER_INPUT || null), "plan:retry");
-  }
+  if (plan === null) plan = await callPlanner(plannerPrompt(USER_INPUT || null), "plan:retry");
   if (plan === null || plan.status === "blocked") return { plan: null, reason: plan ? plan.detail : "planner returned null twice" };
 
-  let check = await agent(planCheckerPrompt, { label: "plan-check", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
+  let check = await agent(planCheckerPrompt, { label: "plan-check", phase: "Plan", schema: CHECK_VERDICT, model: PLANNER.model, effort: "medium" });
   if (check === null) return { plan: null, reason: "plan-check returned null" };
   // Conflicts skip the revision round: only a user decision resolves them.
   if (hasConflict(check)) return { plan: null, ask: { reason: "conflict", findings: conflictFindings(check) } };
@@ -247,7 +230,7 @@ async function makePlan() {
       log("Plan check: " + blocking.length + " blocking finding(s) — one revision round");
       plan = await callPlanner(plannerPrompt(withDecisions(blocking)), "plan:revise");
       if (plan === null || plan.status === "blocked") return { plan: null, reason: "planner failed during revision" };
-      check = await agent(planCheckerPrompt, { label: "plan-recheck", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
+      check = await agent(planCheckerPrompt, { label: "plan-recheck", phase: "Plan", schema: CHECK_VERDICT, model: PLANNER.model, effort: "medium" });
       if (check === null) return { plan: null, reason: "plan-recheck returned null" };
       if (hasConflict(check)) return { plan: null, ask: { reason: "conflict", findings: conflictFindings(check) } };
       const stillBlocking = blockingFindings(check);

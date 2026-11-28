@@ -91,7 +91,7 @@ first call.
 1. `ToolSearch(query: "select:Workflow")` once. Tool absent →
    `spec-task: Workflow tool unavailable`, stop.
 2. `Workflow({name: "taskflow:build-task-spec", args})` with ONE structured
-   `args` object `{DRAFT_PATH: INPUT_PATH, SPEC_PATH: OUTPUT_PATH, USER_INPUT}`.
+   `args` object `{DRAFT_PATH: INPUT_PATH, SPEC_PATH: OUTPUT_PATH, SIZE, USER_INPUT}`.
    `USER_INPUT` is `''` on the first run. Never use `scriptPath`: the plugin
    cache is not readable for it.
 3. Fallback, only when a return is `stage: 'args'` and its `error` starts

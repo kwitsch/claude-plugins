@@ -9,9 +9,11 @@
 // (they never had role files). Run by the spec-task skill, which resumes it
 // with USER_INPUT after a user decision.
 //
-// Args: { DRAFT_PATH, SPEC_PATH, USER_INPUT? }
+// Args: { DRAFT_PATH, SPEC_PATH, SIZE?, USER_INPUT? }
 //   DRAFT_PATH — absolute path of the approved, decision-complete draft
 //   SPEC_PATH  — absolute target path of the spec (create/overwrite)
+//   SIZE       — optional; S | M | L | XL picks the spec writer's model and effort
+//                (SIZE_MODEL), default M
 //   USER_INPUT — optional, default ''; non-empty means resume: the JSON string
 //                {"decisions": [{id, question, answer}], "findings": [...]} with every
 //                decision so far, binding for writer and reviewer
@@ -30,7 +32,9 @@
 //     `args` parameter.
 //   - No clock reads, randomness or FS in the script.
 //
-// Models: spec writer sonnet (1:1 transformation), spec reviewer sonnet.
+// Models: spec writer by the fixed size table (S sonnet/medium, M sonnet/high,
+// L opus/medium, XL opus/high; default M), spec reviewer on the writer's model at
+// effort medium.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const meta = {
@@ -67,16 +71,15 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["DRAFT_PATH", "SPEC_PATH"], { USER_INPUT: "" });
+const A = decodeArgs(["DRAFT_PATH", "SPEC_PATH"], { SIZE: "", USER_INPUT: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
 const { DRAFT_PATH, SPEC_PATH } = A;
 // A non-empty USER_INPUT is the resume signal; an object is accepted and re-serialized.
 const USER_INPUT = typeof A.USER_INPUT === "string" ? A.USER_INPUT : A.USER_INPUT == null ? "" : JSON.stringify(A.USER_INPUT);
 
-const MODELS = {
-  specWriter: "sonnet", // 1:1 transformation, no new decisions
-  specReview: "sonnet", // document comparison draft↔spec
-};
+// Writer model and effort come from the SIZE arg; the reviewer reuses the model at effort medium.
+const SIZE_MODEL = { S: { model: "sonnet", effort: "medium" }, M: { model: "sonnet", effort: "high" }, L: { model: "opus", effort: "medium" }, XL: { model: "opus", effort: "high" } };
+const SPEC_MODEL = SIZE_MODEL[String(A.SIZE).toUpperCase()] || SIZE_MODEL.M;
 
 // Prepended to every prompt below — same wording as the rule baked into every
 // plugin agents/*.md file: these agents run headless inside a Workflow, so any
@@ -160,14 +163,14 @@ Severity 'blocking' for anything that would mislead the downstream planner.
 ${USER_INPUT ? "\nBinding user decisions (JSON below) override the input document where they differ. Never flag an output point that follows them, and never re-raise a conflict they resolve: " + USER_INPUT + "\n" : ""}Structured output only.`;
 
 async function writeSpec(revision, label) {
-  const opts = { label, phase: "Spec", schema: WRITE_RESULT, model: MODELS.specWriter, agentType: "taskflow:spec-writer" };
+  const opts = { label, phase: "Spec", schema: WRITE_RESULT, model: SPEC_MODEL.model, effort: SPEC_MODEL.effort, agentType: "taskflow:spec-writer" };
   let w = await agent(specWriterPrompt(revision), opts);
   if (w === null) w = await agent(specWriterPrompt(revision), { ...opts, label: label + ":retry" });
   return w;
 }
 
 async function reviewSpec(label) {
-  const opts = { label, phase: "Spec", schema: SPEC_REVIEW, model: MODELS.specReview };
+  const opts = { label, phase: "Spec", schema: SPEC_REVIEW, model: SPEC_MODEL.model, effort: "medium" };
   let r = await agent(specReviewerPrompt, opts);
   if (r === null) r = await agent(specReviewerPrompt, { ...opts, label: label + ":retry" });
   return r;

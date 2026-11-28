@@ -45,12 +45,12 @@ The review step between implement and ship is the `review-task` skill, called wi
 
 ## Agents
 
-The plugin ships 12 agents: 10 build-task roles, dispatched via `agentType` by build-task's scripts (the designer and planner model comes from the task size, the rest from the script; the frontmatter `model` is only a default; `design-task` also starts the `designer` directly), `decider`, started by the `decide` skill in headless mode, and `branch-reviewer`, review-task's read-only review, organize, spec-check and rereview job. Besides the roles below, `spec-writer` writes the spec and `explore-scribe` writes the exploration file.
+The plugin ships 12 agents: 10 build-task roles, dispatched via `agentType` by build-task's scripts (the designer, spec writer and planner model and effort come from the task size, the rest from the script; the frontmatter `model` is only a default; `design-task` also starts the `designer` directly), `decider`, started by the `decide` skill in headless mode, and `branch-reviewer`, review-task's read-only review, organize, spec-check and rereview job. Besides the roles below, `spec-writer` writes the spec and `explore-scribe` writes the exploration file.
 
 | Agent             | Model   | Role                                                                                                                                                  |
 | ----------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `designer`        | by size | Writes the design draft. `S` → sonnet, `M`/`L` → opus, `XL` → fable.                                                                                  |
-| `design-reviewer` | sonnet  | Read-only design review and open-question validation.                                                                                                 |
+| `designer`        | by size | Writes the design draft. `S` → sonnet/medium, `M` → sonnet/high, `L` → opus/medium, `XL` → opus/high.                                                 |
+| `design-reviewer` | by size | Read-only design review and open-question validation, on the designer's model at effort `medium`.                                                     |
 | `planner`         | by size | Turns an approved spec into a dense, machine-executable implementation plan. Same size table as the designer.                                         |
 | `worktree-merger` | haiku   | Merges approved task branches into the work branch in order, worktree cleanup (multi-task waves only).                                                |
 | `pr-author`       | haiku   | Writes the PR/MR title and body from the implement and review result files and the repo template.                                                     |

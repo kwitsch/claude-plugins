@@ -61,7 +61,7 @@ One structured object; `status` is the discriminator. Consume only this return.
 | Field          | Meaning                                                                                                       |
 | :------------- | :------------------------------------------------------------------------------------------------------------ |
 | `planPath`     | The plan file (`PLAN_PATH`) — contains `## Global Constraints` and the `## Machine-readable tasks` JSON block |
-| `plannerModel` | The model alias the planner ran on (after any `fable` fallback) — for the final report                        |
+| `plannerModel` | The model alias the planner ran on — for the final report                                                     |
 
 ### `status: 'user_input_required'`
 
@@ -84,12 +84,10 @@ decision so far plus the findings that triggered the resume.
 
 ## Behavior notes
 
-- Planner model from `SIZE`: S sonnet / M opus / L opus / XL fable; unset or
-  unknown → `opus`. A `fable` dispatch that throws (no Fable access) falls
-  back to `opus` for the rest of the run, and a `null` result on `fable` is
-  retried on `opus`. There is no spec classifier: the size comes from the
-  caller.
-- The plan checker runs on the `sonnet` alias: coverage, placeholders,
+- Planner model and effort from `SIZE`: `S` → `sonnet`/`medium`, `M` →
+  `sonnet`/`high`, `L` → `opus`/`medium`, `XL` → `opus`/`high`; unset or
+  unknown → `M`. There is no spec classifier: the size comes from the caller.
+- The plan checker runs on the planner's model at effort `medium`: coverage, placeholders,
   consistency, the machine-readable block and conflicts. Severities:
   `blocking` (one planner revision round and a recheck), `minor` and
   `conflict` (no revision round; returned at once as `user_input_required`).

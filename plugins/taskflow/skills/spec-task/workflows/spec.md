@@ -27,6 +27,7 @@ agents.
 | :----------- | :----- | :------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DRAFT_PATH` | string | yes      | Absolute path of the decision-complete draft (the design script's `complete` `draftPath`)                                                                                                                                                                                        |
 | `SPEC_PATH`  | string | yes      | Absolute target path of the spec (input of the plan script)                                                                                                                                                                                                                      |
+| `SIZE`       | string | no       | `''` (default). Task size `S` / `M` / `L` / `XL` (case-insensitive); picks the spec writer's model and effort, default `M`                                                                                                                                                       |
 | `USER_INPUT` | string | no       | `''` (default). Non-empty = resume: the JSON string `{"decisions": [{id, question, answer}], "findings": [...]}` with every decision so far. The writer rewrites `SPEC_PATH` in place following it; the reviewer treats it as binding and never re-flags a point that follows it |
 
 Guards: missing required keys return `status: 'error', stage: 'args'` before
@@ -73,4 +74,4 @@ decision so far plus the findings that triggered the resume.
   `user_input_required`).
 - spec-task runs this script; build-task calls spec-task once, after design-task returned the approved design (build-task SKILL.md step 3); intent corrections go to the designer inside design-task.
 - The draft is left in place — context for the delivery scripts.
-- Models: spec writer and spec reviewer on the `sonnet` alias.
+- Models: spec writer by size (`S` → `sonnet`/`medium`, `M` → `sonnet`/`high`, `L` → `opus`/`medium`, `XL` → `opus`/`high`, unset or unknown → `M`); the spec reviewer runs on the writer's model at effort `medium`.

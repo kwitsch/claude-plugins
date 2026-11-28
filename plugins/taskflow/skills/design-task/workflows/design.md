@@ -48,18 +48,17 @@ return `status: 'error', stage: 'args'` before any agent is dispatched.
 
 ## Phases and models
 
-| Phase     | Agents                                                                     | Model                                     |
-| :-------- | :------------------------------------------------------------------------- | :---------------------------------------- |
-| `Scout`   | scout (built-in `Explore` agent)                                           | `haiku`                                   |
-| `Explore` | one explorer per lens; the `graphmind memory` recall on the graphmind path | `haiku`                                   |
-| `Scribe`  | `taskflow:explore-scribe`                                                  | `haiku`                                   |
-| `Size`    | inline size agent calling `mcp__taskflow__size-task`                       | `haiku`                                   |
-| `Design`  | `taskflow:designer`, `taskflow:design-reviewer`                            | designer from the size; reviewer `sonnet` |
+| Phase     | Agents                                                                     | Model                                                                         |
+| :-------- | :------------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
+| `Scout`   | scout (built-in `Explore` agent)                                           | `haiku`                                                                       |
+| `Explore` | one explorer per lens; the `graphmind memory` recall on the graphmind path | `haiku`                                                                       |
+| `Scribe`  | `taskflow:explore-scribe`                                                  | `haiku`                                                                       |
+| `Size`    | inline size agent calling `mcp__taskflow__size-task`                       | `haiku`                                                                       |
+| `Design`  | `taskflow:designer`, `taskflow:design-reviewer`                            | designer by the size table; reviewer on the designer's model, effort `medium` |
 
-- Designer model from the size: `S` → `sonnet`, `M` and `L` → `opus`, `XL` →
-  `fable`, unknown → `opus`. A `fable` dispatch that throws (no Fable access)
-  falls back to `opus` for the rest of the run; a null result on `fable` is
-  retried on `opus`.
+- Designer model and effort from the size: `S` → `sonnet`/`medium`, `M` →
+  `sonnet`/`high`, `L` → `opus`/`medium`, `XL` → `opus`/`high`, unknown → `M`.
+  The design reviewer runs on the designer's model at effort `medium`.
 - A failed explore phase does not end the run before `Size`: a `Scout`
   failure skips `Explore` and `Scribe`, an `Explore` failure skips `Scribe`;
   the run then returns `blocked` (case E1) after `Size`, without `Design`.

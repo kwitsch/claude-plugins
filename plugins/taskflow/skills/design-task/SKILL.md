@@ -133,10 +133,11 @@ answered here: this skill starts only the designer. It never runs the
 workflow's Design stage again, and the design reviewer does not run on this
 path.
 
-Apply the headless cap (step 3). `MODEL` from `SIZE`: `S` → `sonnet`, `M` and
-`L` → `opus`, `XL` → `fable`, anything else → `opus`. Dispatch
+Apply the headless cap (step 3). `MODEL` and `EFFORT` from `SIZE`: `S` →
+`sonnet`/`medium`, `M` → `sonnet`/`high`, `L` → `opus`/`medium`, `XL` →
+`opus`/`high`, anything else → `M`. Dispatch
 
-`Agent(subagent_type: "taskflow:designer", description: "Design revision", model: <MODEL>, prompt: <PROMPT_D>)`
+`Agent(subagent_type: "taskflow:designer", description: "Design revision", model: <MODEL>, effort: <EFFORT>, prompt: <PROMPT_D>)`
 
 with `PROMPT_D` = the text below, angle-bracket parts filled in:
 
@@ -171,9 +172,6 @@ There is no StructuredOutput tool in this run: your final message is exactly one
   `Retry the design` or `Run another design round`, the line `## Revision input`
   followed by the text of each question answered that way (it carries the
   block reason or the blocking findings); otherwise empty.
-
-A dispatch that errors on `fable` is repeated once on `opus`, and `opus`
-replaces `fable` for the rest of this invocation.
 
 Check the designer's final message: it parses as one JSON object, has a
 `status` of `done` or `blocked`, a string `keypoints` and an array

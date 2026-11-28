@@ -48,8 +48,9 @@
 //     by the explore-scribe agent and the designer.
 //
 // Models: scout, explorers, memory recall, scribe and size agent on haiku;
-// designer sonnet | opus | fable (from the size, default opus; fable falls back
-// to opus on a dispatch throw), design reviewer sonnet.
+// designer by the fixed size table (S sonnet/medium, M sonnet/high, L opus/medium,
+// XL opus/high; default M), the design reviewer on the designer's model at
+// effort medium.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const meta = {
@@ -113,10 +114,10 @@ const gmHint = (purpose, project) =>
     ? `\n\nHint: graphmind indexes this repository. Optionally load its tools with ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps") and use them ${purpose} rather than broad Grep/Read; pass project: ${project} on every call. Fall back to Read/Grep when a call errors or returns nothing.`
     : "";
 
-const MODELS = { scout: "haiku", explorer: "haiku", scribe: "haiku", size: "haiku", designReview: "sonnet" };
-// Designer model is chosen per run from the Size stage's result (S/M/L/XL).
-const DESIGN_MODEL = { S: "sonnet", M: "opus", L: "opus", XL: "fable" };
-const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || "opus";
+const MODELS = { scout: "haiku", explorer: "haiku", scribe: "haiku", size: "haiku" };
+// Designer model and effort are chosen per run from the Size stage's result (S/M/L/XL); the reviewer reuses the model at effort medium.
+const DESIGN_MODEL = { S: { model: "sonnet", effort: "medium" }, M: { model: "sonnet", effort: "high" }, L: { model: "opus", effort: "medium" }, XL: { model: "opus", effort: "high" } };
+const designerModel = (s) => DESIGN_MODEL[String(s).toUpperCase()] || DESIGN_MODEL.M;
 
 // Prepended to every inline prompt below — same wording as the rule baked into
 // every plugin agents/*.md file: these agents run headless inside a Workflow, so
@@ -415,8 +416,8 @@ if (!sized) sized = await agent(sizePrompt, { ...sizeOpts, label: "size:retry" }
 // No result twice ⇒ the default M, so every exit still carries a size.
 const SIZE = sized ? sized.size : "M";
 const SIZE_LINE = sized ? sized.line : "M (size agent returned no result; default)";
-let DESIGNER_MODEL = designerModel(SIZE);
-log("Size " + SIZE_LINE + " → designer: " + DESIGNER_MODEL);
+const DESIGNER = designerModel(SIZE);
+log("Size " + SIZE_LINE + " → designer: " + DESIGNER.model + "/" + DESIGNER.effort);
 
 // Fields every non-args return carries.
 const common = () => ({ explorePath: EXPLORE_PATH, exploreWritten, size: SIZE, sizeLine: SIZE_LINE, draftPath: DRAFT_PATH });
@@ -473,29 +474,10 @@ function hasContaminatedKeypoints(d) {
   return /<openQuestions|<\/invoke/i.test(kp);
 }
 
-// DESIGNER_MODEL can be downgraded permanently for the rest of this run: an
-// account/session without Fable access throws on dispatch rather than
-// returning null, so an XL task must not be stuck retrying 'fable'.
 async function runDesigner(mode, extra, label) {
-  const opts = (l) => ({ label: l, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL, agentType: "taskflow:designer" });
-  const run = async (l) => {
-    try {
-      return await agent(designerPrompt(mode, extra), opts(l));
-    } catch (e) {
-      if (DESIGNER_MODEL !== "fable") throw e;
-      log("designer dispatch on fable failed (" + e.message + ") — falling back to opus for the rest of this run");
-      DESIGNER_MODEL = "opus";
-      return await agent(designerPrompt(mode, extra), opts(l + ":fable-fallback"));
-    }
-  };
-  let d = await run(label);
-  if (d === null || hasContaminatedKeypoints(d)) {
-    if (d === null && DESIGNER_MODEL === "fable") {
-      log("designer on fable returned null (usage limit?) — retrying on opus");
-      DESIGNER_MODEL = "opus";
-    }
-    d = await run(label + ":retry");
-  }
+  const opts = (l) => ({ label: l, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER.model, effort: DESIGNER.effort, agentType: "taskflow:designer" });
+  let d = await agent(designerPrompt(mode, extra), opts(label));
+  if (d === null || hasContaminatedKeypoints(d)) d = await agent(designerPrompt(mode, extra), opts(label + ":retry"));
   // A contaminated retry is as unusable as null — fail rather than show it.
   return d === null || hasContaminatedKeypoints(d) ? null : d;
 }
@@ -510,7 +492,7 @@ that every file path, symbol and signature the draft relies on actually exists
 in the codebase, and flag any that do not as blocking.${gmHint("to check that those files, symbols and signatures exist", JSON.stringify(REPO))} Structured output only.`;
 
 async function reviewDesign(label) {
-  const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: MODELS.designReview, agentType: "taskflow:design-reviewer" };
+  const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: DESIGNER.model, effort: "medium", agentType: "taskflow:design-reviewer" };
   let r = await agent(designReviewerPrompt, opts);
   if (r === null) r = await agent(designReviewerPrompt, { ...opts, label: label + ":retry" });
   if (r && !Array.isArray(r.findings)) r.findings = [];
