@@ -5,8 +5,8 @@ description: >-
   then runs /simplify and /code-review --fix over the branch diff against its
   base, at a depth taken from --size (S/M/L/XL) or sized automatically. Use
   when the user asks to review, audit or check the current branch's changes.
-argument-hint: "[--size=S|M|L|XL] [base ref]"
-allowed-tools: ["Bash", "Skill", "ToolSearch", "mcp__taskflow__size-task"]
+argument-hint: "[--headless] [--size=S|M|L|XL] [base ref]"
+allowed-tools: ["Bash", "Skill", "ToolSearch", "mcp__taskflow__size-task", "AskUserQuestion", "Agent"]
 ---
 
 # review-task — commit, simplify and code-review the branch
@@ -23,10 +23,25 @@ calls it as its Review step (step 5.3) and pushes in Ship.
 Run every git command with the Bash tool as an ordinary command. Commit
 messages carry no `Co-Authored-By:` trailer and no "Generated with" footer.
 
+## Decisions
+
+Whenever this skill, or `simplify` or `code-review` while running inside it,
+needs a decision from the user, invoke
+`Skill(skill: "taskflow:decide", args: "[--headless] <JSON>")` with
+`--headless` exactly when this run got it (`HEADLESS`, step 1), where
+`<JSON>` is one object
+`{"content": [<strings>], "questions": [{"id", "question", "options", "context"}]}`
+(1-4 questions, 2-4 options each, `context` optional), and use the answers
+from its final `DECISIONS:` line; never call `AskUserQuestion` directly.
+A decide output starting `decide:` → note it for the report and continue
+without the change that needed the decision. review-task has no decision
+point of its own; this covers questions the bundled skills raise.
+
 ## 1. Parse arguments
 
-`$ARGUMENTS` may hold one token `--size=<v>` and a base ref, in any order.
-Strip the `--size=<v>` token first. `<v>` uppercased must be one of `S`, `M`,
+`$ARGUMENTS` may hold `--headless`, one `--size=<v>` token and a base ref, in
+any order. Strip `--headless` first (sets `HEADLESS`), then the `--size=<v>` token.
+`<v>` uppercased must be one of `S`, `M`,
 `L` or `XL`; anything else → stop with exactly
 `Invalid --size "<v>": use S, M, L or XL.` and do nothing else (no git
 command). Set `SIZE` to the uppercased value, or leave it unset when the
@@ -112,6 +127,7 @@ The last message of the skill, plain text:
 - one paragraph on what `simplify` changed and one on what `code-review`
   fixed or found but did not fix;
 - every skipped or failed step (skill unavailable, commit failure, dirty
-  paths left).
+  paths left, a `decide:` output);
+- with `--headless`, every `Decided ...` line that decide printed.
 
 No push, no PR/MR.

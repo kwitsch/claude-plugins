@@ -4,10 +4,11 @@ description: >-
   End-to-end pipeline for a described task: design (explore, draft, review,
   spec) and delivery (plan, wave-parallel implementation, review (simplify +
   code-review), ship), all executed by prebuilt Workflow scripts shipped with this skill. Human
-  checkpoints: open design questions and spec approval, via AskUserQuestion.
-argument-hint: "[--skip-branch-check] [task-description]"
+  checkpoints: open design questions and the intent confirmation, via the
+  decide skill (AskUserQuestion, or with --headless the advisor or a decider agent).
+argument-hint: "[--skip-branch-check] [--headless] [task-description]"
 arguments: task_description
-allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "AskUserQuestion", "ToolSearch", "EnterWorktree", "Skill"]
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "AskUserQuestion", "ToolSearch", "EnterWorktree", "Skill", "Agent"]
 ---
 
 # build-task
@@ -44,20 +45,30 @@ Runs inline because it invokes the Workflow tool directly — do NOT fork it.
 workflows, whose own `phase()`/`log()` output is the progress surface. This
 skill only announces its steps as single plain-text lines ("Starting step N:
 …") — announcements are never questions and never substitute for a step's own
-required output (step 3's Keypoints presentation is a separate, mandatory
-message).
+required output (step 3's Keypoints are shown by its decide call).
 
-> **User decisions go through `AskUserQuestion`** — fixed-choice and
-> open-ended alike; never plain prose that waits for a typed reply.
+> **Every decision goes through the `taskflow:decide` skill:**
+> `Skill(skill: "taskflow:decide", args: "[--headless] <JSON>")`, with
+> `--headless` exactly when this run got it, where `<JSON>` is one object
+> `{"content": [<strings>], "questions": [{"id", "question", "options", "context"}]}`
+> (1-4 questions, 2-4 options each, `context` optional);
+> never ask in plain prose and never call `AskUserQuestion` directly.
+> Use the answers from its final `DECISIONS:` line (`[{id, answer}]`). A
+> decide output starting `decide:` → surface it and stop.
 
-`$task_description` may optionally start with `--skip-branch-check` (a bare
-boolean flag, no value) — parse and strip it before anything else; whatever
-remains (trimmed) is the actual task text used everywhere `$task_description`
-is referenced below. When present it makes step 1 trust the
+`$ARGUMENTS` may start with `--skip-branch-check` and/or `--headless` (bare
+boolean flags, no value, either order) — parse and strip both before
+anything else; whatever remains (trimmed) is the actual task text used
+everywhere `$task_description` is referenced below. `--skip-branch-check`
+makes step 1 trust the
 already-checked-out work branch and skip its clean-tree check and worktree creation
 (see step 1). Callers that have already established the correct, clean work
 branch — notably `dispatch-task`, which always passes it — use this to avoid
-a redundant check.
+a redundant check. `--headless` makes every decision without the user
+(decide with `--headless`: the advisor or the `taskflow:decider` agent
+answers) and the run never waits for input; where an interactive run would
+ask again, a headless run stops with a report (step 3, and the resume cap in
+step 2.4).
 
 ## Plugin context
 
@@ -231,31 +242,45 @@ Every pipeline file is session-only, never a repository file:
    4. **Design.** Run the design script with args
       `{TASK: $task_description, EXPLORE_PATH, DRAFT_PATH, SIZE, GRAPHMIND_AVAILABLE, REPO_PATH, RESUME: false, USER_INPUT: ''}`.
       Then by `status`:
-      - `user_input_required` → one `AskUserQuestion` call covering the
-        returned `questions` (their `options` verbatim as choices; free text
-        arrives via "Other"; use `whyItMatters` as the question context).
+      - `user_input_required` → one decide call (Decisions rule above) with
+        `content: []` and `questions` = the returned `questions`, each mapped
+        to `{id, question, options, context: whyItMatters}` (options verbatim).
         Re-run the design script with `RESUME: true`, the **same**
         `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`, `GRAPHMIND_AVAILABLE`
-        and `REPO_PATH`, and `USER_INPUT` = the answers as `[{id, answer}]` (a JSON value, never
-        `[object Object]`). Repeat this bullet until `complete` or `error` —
-        new genuine questions after a resume are expected, not a failure.
+        and `REPO_PATH`, and `USER_INPUT` = the `DECISIONS` array unchanged
+        (`[{id, answer}]`, a JSON value, never `[object Object]`). Repeat
+        this bullet until `complete` or `error` — new genuine questions after
+        a resume are expected, not a failure. Headless resume cap: with
+        `--headless`, at most 3 design-script resumes per invocation (these
+        answers and step 3 corrections together); a 4th needed resume → stop
+        and report
+        "headless design did not converge after 3 resumes" with `draftPath`.
       - `error` → surface `stage`, `error`, and `draftPath`, then stop.
       - `complete` → keep `keypoints` and the design `minorFindings`.
-3. **Intent confirmation.** Read nothing aloud from memory: output the
-   `keypoints` from the last design return verbatim as your own plain-text
-   message (the user has never seen the temp files), then `AskUserQuestion`:
-   does this match their intent, proceed to implementation? Options: **Yes —
-   proceed** / **No — needs changes** (specific corrections arrive via
-   "Other"). "No" picked without detail → one clarifying `AskUserQuestion`
-   round for what should change; never guess. With corrections in hand →
-   re-run step 2.4 (design script) with `RESUME: true`, `USER_INPUT` = the
-   corrections, and the same `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`,
-   `GRAPHMIND_AVAILABLE` and `REPO_PATH` (the script records the corrections as binding USER DECISIONs and
-   rewrites the draft; handle its return as in step 2.4), then re-ask this
-   step from the new keypoints. Explore and Size are not re-run. Only after
+3. **Intent confirmation.** Read nothing aloud from memory: one decide call
+   with `content` = the `keypoints` of the last design return, one item per
+   bullet, verbatim (the user has never seen the temp files; decide shows
+   them as a bullet list), and the one question
+   `{"id": "intent", "question": "Does this match the intended design? Proceed to implementation? Picking No requires describing the change.", "options": ["Yes — proceed", "No — needs changes"]}`.
+   Any answer other than the two options is the corrections. With
+   corrections in hand → re-run step 2.4 (design script) with
+   `RESUME: true`, `USER_INPUT` = the corrections, and the same
+   `EXPLORE_PATH`, `DRAFT_PATH`, `SIZE`, `GRAPHMIND_AVAILABLE` and
+   `REPO_PATH` (the script records the corrections as binding USER DECISIONs
+   and rewrites the draft; handle its return as in step 2.4, headless resume
+   cap included), then re-ask this step from the new keypoints. Explore and
+   Size are not re-run. Only after
    "Yes" is the design **approved** — this is the pipeline's one human
    checkpoint on the design; the spec (step 4) is written from the approved
-   draft.
+   draft. "No — needs changes" without corrections:
+   - Interactive: one clarifying decide call with
+     `{"id": "changes", "question": "What should change in the design?", "options": ["Proceed as designed after all", "Describe the change (via Other)"]}`;
+     "Proceed as designed after all" counts as "Yes"; the option
+     "Describe the change (via Other)" itself → ask that clarifying call
+     once more; never guess. A free-text answer is the corrections.
+   - Headless: stop and report
+     "headless intent check rejected the design without corrections" with
+     `draftPath` (no clarifying call in headless).
 4. **Spec.** Runs once, after the "Yes" of step 3. Run the spec script with
    args `{DRAFT_PATH, SPEC_PATH}`.
    `error` → surface `stage`, `error`, and `draftPath`, then stop.
@@ -277,7 +302,8 @@ Every pipeline file is session-only, never a repository file:
       `waves` and the implement `minorFindings`.
    3. **Review.** Invoke
       `Skill(skill: "taskflow:review-task", args: "--size=<SIZE> <BASE_BRANCH>")`
-      with the step-2.3 `SIZE`, follow it to its report, then continue here.
+      with the step-2.3 `SIZE`, with `--headless ` prepended to `args` when
+      this run got `--headless`; follow it to its report, then continue here.
       review-task commits pending changes, runs `simplify` and
       `code-review <level> --fix` over `<BASE_BRANCH>...HEAD`, commits each
       pass's edits and prints `Size:` and the line
@@ -285,9 +311,13 @@ Every pipeline file is session-only, never a repository file:
       review-task stopped on an error (branch guard, commit failure), or its
       report lists `simplify` or `code-review` as unavailable or failed →
       surface its message and stop (no Ship). Then check every commit
-      review-task made (`git show <hash>`) against the approved spec: a fix
-      that reverses a spec decision → one `AskUserQuestion` (keep / revert
-      with `git revert`); never leave it unasked. Otherwise Write `REVIEW_PATH`
+      review-task made (`git show <hash>`) against the approved spec: for
+      each fix that reverses a spec decision, one decide call with
+      `content` = [`<hash> <subject>`, the spec decision it reverses] and
+      `{"id": "reversal-<hash>", "question": "Keep this fix or revert it?", "options": ["Keep", "Revert with git revert"]}`;
+      never leave it unasked. "Revert with git revert" → run
+      `git revert --no-edit <hash>` (failure → stop and report) and list the
+      revert commit in `commits`; "Keep" → change nothing. Then Write `REVIEW_PATH`
       (English) with the Write tool:
       `{"size": "<SIZE>", "level": "<level>", "commits": ["<hash> <subject>", ...], "summary": "<simplify and code-review summary from the report, incl. found-but-not-fixed items>"}`
       — `commits` from the report's `git log --oneline` list. When
@@ -319,4 +349,6 @@ Every pipeline file is session-only, never a repository file:
    spec — from the last spec return), and the `ship` outcome from the ship
    return (PR/MR url, CI status; on `ci_failed`/`blocked` state plainly what
    the human must pick up) — or "PR/MR skipped at the user's request".
+   With `--headless`, the report also lists every `Decided ...` line that
+   decide printed.
    Merging the PR/MR is not this skill's job.
